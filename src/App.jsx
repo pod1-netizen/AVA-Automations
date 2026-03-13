@@ -197,10 +197,29 @@ function parseLiveData(rows) {
 
 // ── CSV Import parser ─────────────────────────────────────────────────────────
 function parseCSVData(csvText) {
-  const lines = csvText.trim().split(/\r?\n/);
-  if (lines.length < 2) return null;
+  function tokenizeCSV(text) {
+    const rows = [];
+    let row = [], cur = "", inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '"') {
+        if (inQ && text[i+1] === '"') { cur += '"'; i++; }
+        else inQ = !inQ;
+      } else if (ch === ',' && !inQ) {
+        row.push(cur.trim()); cur = "";
+      } else if ((ch === '\n' || (ch === '\r' && text[i+1] === '\n')) && !inQ) {
+        if (ch === '\r') i++;
+        row.push(cur.trim()); rows.push(row); row = []; cur = "";
+      } else { cur += ch; }
+    }
+    if (cur || row.length) { row.push(cur.trim()); rows.push(row); }
+    return rows;
+  }
 
-  const header = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const rows = tokenizeCSV(csvText);
+  if (rows.length < 2) return null;
+
+  const header = rows[0].map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ""));
   const idx = (candidates) => {
     for (const c of candidates) {
       const i = header.findIndex(h => h.includes(c));
@@ -217,46 +236,63 @@ function parseCSVData(csvText) {
   const iWin    = idx(["specialwins","winnote","win","note"]);
   const iDate   = idx(["formatteddate","date","timestamp"]);
 
-  function parseRow(line) {
-    const cols = []; let cur = "", inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { inQ = !inQ; }
-      else if (ch === "," && !inQ) { cols.push(cur.trim()); cur = ""; }
-      else { cur += ch; }
+  function normalizeCategory(raw) {
+    if (!raw) return "Administrative";
+    const r = raw.toLowerCase();
+    if (r.includes("content") || r.includes("reel") || r.includes("caption") || r.includes("script")) return "Content & Marketing";
+    if (r.includes("design") || r.includes("edit") || r.includes("brand") || r.includes("photo")) return "Design & Editing";
+    if (r.includes("document") || r.includes("prep") || r.includes("report")) return "Document Prep";
+    if (r.includes("client relation") || r.includes("crm") || r.includes("follow")) return "Client Relations";
+    if (r.includes("platform") || r.includes("posting") || r.includes("schedul")) return "Platform Management";
+    if (r.includes("manag") || r.includes("coord") || r.includes("sync") || r.includes("meeting")) return "Management";
+    return "Administrative";
+  }
+
+  function parseDate(raw) {
+    if (!raw) return "";
+    const isoMatch = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) return isoMatch[0];
+    const monthNames = {january:"01",february:"02",march:"03",april:"04",may:"05",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
+    const longMatch = raw.toLowerCase().match(/([a-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
+    if (longMatch) {
+      const [,mon,day,year] = longMatch;
+      const m = monthNames[mon] || "01";
+      return `${year}-${m}-${day.padStart(2,"0")}`;
     }
-    cols.push(cur.trim()); return cols;
+    const mdyMatch = raw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (mdyMatch) {
+      const [,m,d,y] = mdyMatch;
+      return `${y.length===2?"20"+y:y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
+    }
+    return "";
   }
 
   const result = {};
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const cols = parseRow(lines[i]);
-    const clientName = iClient >= 0 ? cols[iClient]?.replace(/^"|"$/g,"").trim() : "";
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i];
+    if (!cols || cols.length < 2) continue;
+    const clientName = iClient >= 0 ? (cols[iClient] || "").trim() : "";
     if (!clientName) continue;
     if (!result[clientName]) result[clientName] = { tasks: [], wins: [] };
 
-    const rawDate = iDate >= 0 ? cols[iDate]?.replace(/^"|"$/g,"").trim() : "";
-    let dateStr = "";
-    const isoMatch = rawDate.match(/(\d{4})-(\d{2})-(\d{2})/);
-    const mdyMatch = rawDate.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-    if (isoMatch) { dateStr = isoMatch[0]; }
-    else if (mdyMatch) {
-      const [,m,d,y] = mdyMatch;
-      dateStr = `${y.length===2?"20"+y:y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
-    }
-
-    const taskName = iTask  >= 0 ? cols[iTask]?.replace(/^"|"$/g,"").trim()  : "";
-    const vaName   = iVA    >= 0 ? cols[iVA]?.replace(/^"|"$/g,"").trim()    : "";
-    const hours    = iHours >= 0 ? parseFloat(cols[iHours]) || 0             : 0;
-    const cat      = iCat   >= 0 ? cols[iCat]?.replace(/^"|"$/g,"").trim()   : "Administrative";
-    const winNote  = iWin   >= 0 ? cols[iWin]?.replace(/^"|"$/g,"").trim()   : "";
+    const rawDate  = iDate  >= 0 ? (cols[iDate]  || "") : "";
+    const taskRaw  = iTask  >= 0 ? (cols[iTask]  || "") : "";
+    const vaRaw    = iVA    >= 0 ? (cols[iVA]    || "").trim() : "";
+    const vaName   = normalizeVAName(vaRaw);
+    const hours    = iHours >= 0 ? parseFloat(cols[iHours]) || 0 : 0;
+    const catRaw   = iCat   >= 0 ? (cols[iCat]   || "") : "";
+    const winNote  = iWin   >= 0 ? (cols[iWin]   || "").trim() : "";
+    const dateStr  = parseDate(rawDate.trim());
+    const cat      = normalizeCategory(catRaw);
+    const taskName = taskRaw.split(/\n/).map(l => l.trim()).filter(Boolean)[0] || "";
 
     if (taskName) result[clientName].tasks.push({ name: taskName, date: dateStr, hours, va: vaName, cat });
-    if (winNote)  result[clientName].wins.push({ va: vaName, note: winNote, date: dateStr });
+    const winClean = winNote.replace(/^n\/a$/i,"").replace(/^na$/i,"");
+    if (winClean) result[clientName].wins.push({ va: vaName, note: winClean, date: dateStr });
   }
   return Object.keys(result).length > 0 ? result : null;
 }
+
 
 // ── Build CLIENTS list from sheetData + CLIENT_META ───────────────────────────
 function buildClients(sheetData) {
