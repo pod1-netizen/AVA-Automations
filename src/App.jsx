@@ -541,11 +541,13 @@ function buildDirectReport(client, period, data, slackMessages = []) {
 
     if (responseTimes.length > 0) {
       const avgSecs = responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
-      const TARGET_SECS = 120; // 2 minutes = 100%
-      // Score: 100% if <= 2min, drops as response time grows, floor at 0%
-      const score = Math.max(0, Math.round(100 * Math.min(1, TARGET_SECS / avgSecs)));
-      const avgMins = Math.round(avgSecs / 60);
-      avgTurnaround = `${score}% (avg ${avgMins < 60 ? avgMins + " min" : Math.round(avgMins/60) + " hr"})`;
+      const avgHours = avgSecs / 3600;
+      let score;
+      if (avgHours <= 5) score = "100%";
+      else if (avgHours <= 24) score = "90%";
+      else if (avgHours <= 48) score = "75%";
+      else score = "50%";
+      avgTurnaround = score;
     }
   }
 
