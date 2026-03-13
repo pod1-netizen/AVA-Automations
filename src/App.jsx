@@ -1341,22 +1341,10 @@ function Sidebar({ sel, onSel, selPeriod, onPeriod, clients, syncStatus, sheetDa
 }
 
 // ── Slack helpers ─────────────────────────────────────────────────────────────
-function getSlackToken() {
-  if (!window.__SLACK_TOKEN__) {
-    window.__SLACK_TOKEN__ = prompt("Enter your Slack Bot Token (xoxb-...) to pull channel conversations:\n\nThis is saved for the session only.");
-  }
-  return window.__SLACK_TOKEN__;
-}
-
 async function fetchSlackMessages(channelName, periodStart, periodEnd) {
-  const token = getSlackToken();
-  if (!token) return [];
-
   async function slackProxy(endpoint, params = {}) {
     const qs = new URLSearchParams({ endpoint, ...params }).toString();
-    const res = await fetch(`/api/slack?${qs}`, {
-      headers: { "x-slack-token": token }
-    });
+    const res = await fetch(`/api/slack?${qs}`);
     return res.json();
   }
 
