@@ -484,6 +484,82 @@ RULES:
 - Do not add categories that don't exist in the input data`;
 }
 
+// ── Build report data directly from CSV (no Claude needed) ──────────────────
+function buildDirectReport(client, period, data) {
+  if (!data) return null;
+  const totalH = data.totalHours;
+  const selfH = Math.round(totalH * 2.5 * 100) / 100;
+  const savedH = Math.round((selfH - totalH) * 100) / 100;
+  const fmt = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const breakdown = Object.entries(data.cats).map(([cat, ava]) => {
+    const self = Math.round(ava * 2.5 * 100) / 100;
+    return { category: cat, ava_hours: ava, self_hours: self, hours_saved: Math.round((self - ava) * 100) / 100 };
+  });
+
+  const recognitions = Object.entries(data.vas).map(([va, hrs], i) => ({
+    number: i + 1,
+    name: va,
+    note: `Contributed ${hrs}h across ${data.vaDetails?.[va]?.tasks?.length || 0} tasks this period.`
+  }));
+
+  const winsList = data.wins?.length ? data.wins.map(w => `${w.va}: ${w.note}`).join(" | ") : "No special wins recorded this period.";
+
+  return {
+    client: client.display,
+    period: period.label,
+    slack: client.slack,
+    totals: {
+      submitted: data.taskCount,
+      completed: data.taskCount,
+      completion_rate: "100%",
+      avg_turnaround: "< 24 Hours",
+      in_progress: 0,
+      overdue: 0,
+      total_hours: totalH
+    },
+    metric_statuses: {
+      submitted: "-",
+      completed: "High",
+      completion_rate: "On Track",
+      avg_turnaround: "Excellent",
+      in_progress: "Minimal",
+      overdue: "Monitor",
+      total_hours: "Comprehensive Service"
+    },
+    tasks_data: {
+      categories: data.cats,
+      by_category: data.byCategory
+    },
+    quality: { first_time_rate: "—", revision_rate: "—", approval_rate: "—" },
+    communication: { avg_response: "—", daily_updates: "—", slack_engagement: "Active" },
+    time_saved: {
+      total_ava_hours: totalH,
+      total_self_hours: selfH,
+      total_saved_hours: savedH,
+      breakdown
+    },
+    value: {
+      opp_low: fmt(selfH * 100),
+      opp_high: fmt(selfH * 150),
+      cost_avoidance: fmt(selfH * 75),
+      total_low: fmt(selfH * 100),
+      total_high: fmt(selfH * 150),
+      rate_low: 100,
+      rate_high: 150
+    },
+    recap: {
+      updated: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+      overall_performance: `${client.display}'s team logged ${totalH} hours across ${data.taskCount} tasks this period, with ${Object.keys(data.vas).length} VAs contributing: ${Object.entries(data.vas).map(([v,h]) => `${v} (${h}h)`).join(", ")}.`,
+      roi_impact: `Client reclaimed an estimated ${savedH} hours. Opportunity value ranges from $${fmt(selfH*100)} to $${fmt(selfH*150)} based on standard rate benchmarks.`,
+      market_positioning: `Work spanned ${Object.keys(data.cats).length} categories including ${Object.keys(data.cats).slice(0,3).join(", ")}, demonstrating broad operational support.`
+    },
+    recognitions,
+    monthly_balance: { cap: 300, used: totalH, remaining: Math.max(0, 300 - totalH) },
+    _wins: winsList
+  };
+}
+
 // ── PDF HTML template — matches Bryan Cruz report exactly ─────────────────────
 function generatePDFHTML(d, client, period) {
   const now = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -1390,13 +1466,14 @@ function MainPanel({ client, period, sheetData }) {
   const [slackStatus, setSlackStatus] = useState("idle");
   const [slackMessages, setSlackMessages] = useState([]);
   const [slackPreview, setSlackPreview] = useState(false);
+  const [mainTab, setMainTab] = useState("generate");
   const data = useMemo(() => {
     if (!client?.dataKey || !period) return null;
     const raw = sheetData[client.dataKey];
     return raw ? filterData(raw, period) : null;
   }, [client, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useMemo(() => { setStatus("idle"); setReportData(null); setSlackMessages([]); setSlackStatus("idle"); setSlackPreview(false); }, [client, period]);
+  useMemo(() => { setStatus("idle"); setReportData(null); setSlackMessages([]); setSlackStatus("idle"); setSlackPreview(false); setMainTab("generate"); }, [client, period]);
 
   const fetchSlack = async () => {
     if (!client?.slack || !period) return;
@@ -1498,8 +1575,43 @@ function MainPanel({ client, period, sheetData }) {
     avoid: (data.totalHours * 2.5 * 75).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   } : null;
 
+  const directReport = useMemo(() => buildDirectReport(client, period, data), [client, period, data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const previewPDF = () => {
+    if (!directReport) return;
+    const html = generatePDFHTML(directReport, client, period);
+    const htmlWithPrint = html.replace("</body>", `<script>window.onload=function(){setTimeout(function(){window.print();},600);}<\/script></body>`);
+    const blob = new Blob([htmlWithPrint], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  const downloadPreviewHTML = () => {
+    if (!directReport) return;
+    const html = generatePDFHTML(directReport, client, period);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `KPI-${client.display}-${period.label}.html`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* Tab switcher */}
+      {data && (
+        <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: 4, border: "1px solid rgba(255,255,255,0.06)" }}>
+          {[["generate", "🤖 Generate with Claude"], ["preview", "📄 Preview Report"]].map(([tab, label]) => (
+            <button key={tab} onClick={() => setMainTab(tab)}
+              style={{ flex: 1, padding: "8px 0", borderRadius: 7, border: "none", background: mainTab === tab ? (tab === "preview" ? `rgba(240,180,41,0.15)` : `rgba(13,148,136,0.15)`) : "transparent", color: mainTab === tab ? (tab === "preview" ? GOLD : TEAL) : "#475569", cursor: "pointer", fontSize: 12, fontWeight: mainTab === tab ? 700 : 400, transition: "all 0.15s" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Header card */}
       <div style={{ background: `linear-gradient(135deg,${NAVY2},#163456)`, borderRadius: 14, padding: "20px 26px", borderBottom: `3px solid ${GOLD}` }}>
@@ -1517,8 +1629,8 @@ function MainPanel({ client, period, sheetData }) {
         </div>
       </div>
 
-      {/* Data preview */}
-      {data && status === "idle" && (
+      {/* Data preview — hidden in preview tab */}
+      {data && status === "idle" && mainTab === "generate" && (
         <>
           <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "16px 18px" }}>
             <div style={{ fontSize: 10, color: TEAL, textTransform: "uppercase", fontWeight: 700, marginBottom: 13 }}>Sheet Data Preview</div>
@@ -1565,7 +1677,7 @@ function MainPanel({ client, period, sheetData }) {
       )}
 
       {/* Loading */}
-      {status === "loading" && (
+      {mainTab === "generate" && status === "loading" && (
         <div style={{ background: "rgba(13,148,136,0.07)", border: `1px solid rgba(13,148,136,0.2)`, borderRadius: 14, padding: "36px", textAlign: "center" }}>
           <div style={{ fontSize: 34, marginBottom: 12 }}>{["⚙️","📊","✍️","📋"][dots]}</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: TEAL, marginBottom: 6 }}>Generating KPI Report{".".repeat(dots + 1)}</div>
@@ -1621,7 +1733,7 @@ function MainPanel({ client, period, sheetData }) {
       )}
 
       {/* Error */}
-      {status === "error" && (
+      {mainTab === "generate" && status === "error" && (
         <div style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 12, padding: "20px" }}>
           <div style={{ fontSize: 13, color: "#f87171", marginBottom: 8, fontWeight: 700 }}>⚠️ Generation failed</div>
           {errorMsg && <div style={{ fontSize: 10, color: "#fca5a5", marginBottom: 12, fontFamily: "monospace", background: "rgba(0,0,0,0.2)", padding: "8px 10px", borderRadius: 6, wordBreak: "break-all", lineHeight: 1.6 }}>{errorMsg}</div>}
@@ -1675,8 +1787,8 @@ function MainPanel({ client, period, sheetData }) {
         </div>
       )}
 
-      {/* Generate button */}
-      {status === "idle" && (
+      {/* Generate button — only in generate tab */}
+      {mainTab === "generate" && status === "idle" && (
         <button onClick={generate}
           style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: `linear-gradient(135deg,${TEAL},#0f766e)`, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, boxShadow: `0 4px 24px rgba(13,148,136,0.35)`, transition: "transform 0.15s" }}
           onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"}
@@ -1684,6 +1796,168 @@ function MainPanel({ client, period, sheetData }) {
           <span style={{ fontSize: 18 }}>🤖</span>
           Generate KPI Report with Claude {slackMessages.length > 0 ? `+ ${slackMessages.length} Slack msgs` : ""}
         </button>
+      )}
+
+      {/* ── Preview Report Tab ──────────────────────────────── */}
+      {mainTab === "preview" && directReport && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={previewPDF}
+              style={{ flex: 1, padding: "13px", borderRadius: 10, border: "none", background: `linear-gradient(135deg,${GOLD},#d97706)`, color: "#000", cursor: "pointer", fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              🖨️ Save as PDF
+            </button>
+            <button onClick={downloadPreviewHTML}
+              style={{ padding: "13px 18px", borderRadius: 10, border: `1px solid ${GOLD}60`, background: `${GOLD}10`, color: GOLD, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+              ⬇ HTML
+            </button>
+          </div>
+
+          {/* Report inline preview */}
+          <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: `1px solid rgba(240,180,41,0.2)` }}>
+
+            {/* Report header */}
+            <div style={{ background: "#07111f", padding: "22px 28px", borderBottom: "3px solid #f0b429" }}>
+              <div style={{ fontSize: 9, color: "#f0b429", textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 4 }}>Ava Virtual Agents Inc. · KPI Report</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: 9, color: "#475569", marginBottom: 2 }}>Prepared for</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>{client.display}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 9, color: "#475569", marginBottom: 2 }}>Reporting Period</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{period.label}</div>
+                  <div style={{ fontSize: 9, color: "#334155", marginTop: 2 }}>{client.slack}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Metrics summary */}
+            <div style={{ padding: "20px 28px", borderBottom: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 10, color: "#0d9488", textTransform: "uppercase", fontWeight: 700, marginBottom: 12, letterSpacing: "0.1em" }}>Performance Summary</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+                {[
+                  ["Total Hours", `${directReport.totals.total_hours}h`, "#0d9488"],
+                  ["Tasks Completed", directReport.totals.completed, "#f0b429"],
+                  ["VAs Active", directReport.recognitions.length, "#8b5cf6"],
+                  ["Completion Rate", directReport.totals.completion_rate, "#22c55e"],
+                ].map(([label, value, color]) => (
+                  <div key={label} style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px", borderLeft: `3px solid ${color}` }}>
+                    <div style={{ fontSize: 8, color: "#94a3b8", textTransform: "uppercase", marginBottom: 3 }}>{label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#1a1a2e", fontFamily: "monospace" }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Hours by category */}
+            <div style={{ padding: "20px 28px", borderBottom: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 10, color: "#0d9488", textTransform: "uppercase", fontWeight: 700, marginBottom: 12, letterSpacing: "0.1em" }}>Hours by Category</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {Object.entries(directReport.tasks_data.categories).map(([cat, hrs]) => {
+                  const pct = Math.round((hrs / directReport.totals.total_hours) * 100);
+                  return (
+                    <div key={cat}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                        <span style={{ fontSize: 11, color: "#374151" }}>{cat}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#1a1a2e" }}>{hrs}h</span>
+                      </div>
+                      <div style={{ height: 5, background: "#e2e8f0", borderRadius: 3 }}>
+                        <div style={{ height: "100%", width: `${pct}%`, background: "#0d9488", borderRadius: 3 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* VA contributions */}
+            <div style={{ padding: "20px 28px", borderBottom: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 10, color: "#0d9488", textTransform: "uppercase", fontWeight: 700, marginBottom: 12, letterSpacing: "0.1em" }}>VA Contributions</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {Object.entries(directReport.tasks_data.categories ? data.vas : {}).map(([va, hrs]) => (
+                  <div key={va} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", background: "#f8fafc", borderRadius: 7 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 26, height: 26, borderRadius: "50%", background: "linear-gradient(135deg,#f0b429,#d97706)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#000" }}>{va.charAt(0)}</div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#1a1a2e" }}>{va}</span>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: "#0d9488" }}>{hrs}h</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Value estimate */}
+            <div style={{ padding: "20px 28px", borderBottom: "1px solid #e2e8f0", background: "#fffbeb" }}>
+              <div style={{ fontSize: 10, color: "#d97706", textTransform: "uppercase", fontWeight: 700, marginBottom: 12, letterSpacing: "0.1em" }}>Estimated Value Delivered</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+                {[
+                  ["Opportunity Value", `$${directReport.value.opp_low} – $${directReport.value.opp_high}`],
+                  ["Cost Avoidance", `$${directReport.value.cost_avoidance}`],
+                  ["Hours Saved", `${directReport.time_saved.total_saved_hours}h`],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #fde68a" }}>
+                    <div style={{ fontSize: 8, color: "#92400e", textTransform: "uppercase", marginBottom: 3 }}>{label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: "#92400e" }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Time saved breakdown */}
+            <div style={{ padding: "20px 28px", borderBottom: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 10, color: "#0d9488", textTransform: "uppercase", fontWeight: 700, marginBottom: 12, letterSpacing: "0.1em" }}>Time Saved Breakdown</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead>
+                  <tr style={{ background: "#f1f5f9" }}>
+                    {["Category", "Ava Hours", "Self-Mgmt Hours", "Hours Saved"].map(h => (
+                      <th key={h} style={{ padding: "7px 10px", textAlign: "left", color: "#64748b", fontWeight: 700, fontSize: 9, textTransform: "uppercase" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {directReport.time_saved.breakdown.map((r, i) => (
+                    <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <td style={{ padding: "7px 10px", color: "#374151" }}>{r.category}</td>
+                      <td style={{ padding: "7px 10px", color: "#0d9488", fontWeight: 700 }}>{r.ava_hours}h</td>
+                      <td style={{ padding: "7px 10px", color: "#374151" }}>{r.self_hours}h</td>
+                      <td style={{ padding: "7px 10px", color: "#22c55e", fontWeight: 700 }}>{r.hours_saved}h</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Team recognitions */}
+            <div style={{ padding: "20px 28px", borderBottom: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 10, color: "#0d9488", textTransform: "uppercase", fontWeight: 700, marginBottom: 12, letterSpacing: "0.1em" }}>Team Recognition</div>
+              {directReport.recognitions.map((r, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 8 }}>
+                  <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#f0b429", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, flexShrink: 0 }}>{r.number}</div>
+                  <div style={{ fontSize: 11, color: "#374151", lineHeight: 1.5 }}><strong>{r.name}:</strong> {r.note}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Monthly balance */}
+            <div style={{ padding: "20px 28px" }}>
+              <div style={{ fontSize: 10, color: "#0d9488", textTransform: "uppercase", fontWeight: 700, marginBottom: 10, letterSpacing: "0.1em" }}>Monthly Hour Balance</div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 11 }}>
+                <span style={{ color: "#374151" }}>Hours Used: <strong>{directReport.monthly_balance.used}h</strong></span>
+                <span style={{ color: "#374151" }}>Cap: <strong>{directReport.monthly_balance.cap}h</strong></span>
+                <span style={{ color: "#22c55e" }}>Remaining: <strong>{directReport.monthly_balance.remaining}h</strong></span>
+              </div>
+              <div style={{ height: 8, background: "#e2e8f0", borderRadius: 4 }}>
+                <div style={{ height: "100%", width: `${Math.min(100, (directReport.monthly_balance.used / directReport.monthly_balance.cap) * 100)}%`, background: directReport.monthly_balance.used > directReport.monthly_balance.cap * 0.9 ? "#ef4444" : "#22c55e", borderRadius: 4 }} />
+              </div>
+              <div style={{ marginTop: 14, fontSize: 9, color: "#94a3b8", textAlign: "center" }}>
+                Generated by Ava Virtual Agents Inc. · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+              </div>
+            </div>
+
+          </div>
+        </div>
       )}
     </div>
   );
