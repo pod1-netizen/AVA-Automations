@@ -1,5 +1,3 @@
-import { useState, useMemo, useEffect } from "react";
-
 const NAVY = "#07111f";
 const NAVY2 = "#0c1d35";
 const GOLD = "#f0b429";
@@ -192,6 +190,70 @@ function parseLiveData(rows) {
     }
   });
   return result;
+}
+
+
+// ── CSV Import parser ─────────────────────────────────────────────────────────
+function parseCSVData(csvText) {
+  const lines = csvText.trim().split(/\r?\n/);
+  if (lines.length < 2) return null;
+
+  const header = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const idx = (candidates) => {
+    for (const c of candidates) {
+      const i = header.findIndex(h => h.includes(c));
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+
+  const iClient = idx(["clientname","client"]);
+  const iVA     = idx(["vaname","va"]);
+  const iHours  = idx(["totalhours","hours"]);
+  const iCat    = idx(["taskcategory","category","cat"]);
+  const iTask   = idx(["taskscompleted","taskname","task"]);
+  const iWin    = idx(["specialwins","winnote","win","note"]);
+  const iDate   = idx(["formatteddate","date","timestamp"]);
+
+  function parseRow(line) {
+    const cols = []; let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === "," && !inQ) { cols.push(cur.trim()); cur = ""; }
+      else { cur += ch; }
+    }
+    cols.push(cur.trim()); return cols;
+  }
+
+  const result = {};
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const cols = parseRow(lines[i]);
+    const clientName = iClient >= 0 ? cols[iClient]?.replace(/^"|"$/g,"").trim() : "";
+    if (!clientName) continue;
+    if (!result[clientName]) result[clientName] = { tasks: [], wins: [] };
+
+    const rawDate = iDate >= 0 ? cols[iDate]?.replace(/^"|"$/g,"").trim() : "";
+    let dateStr = "";
+    const isoMatch = rawDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+    const mdyMatch = rawDate.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (isoMatch) { dateStr = isoMatch[0]; }
+    else if (mdyMatch) {
+      const [,m,d,y] = mdyMatch;
+      dateStr = `${y.length===2?"20"+y:y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
+    }
+
+    const taskName = iTask  >= 0 ? cols[iTask]?.replace(/^"|"$/g,"").trim()  : "";
+    const vaName   = iVA    >= 0 ? cols[iVA]?.replace(/^"|"$/g,"").trim()    : "";
+    const hours    = iHours >= 0 ? parseFloat(cols[iHours]) || 0             : 0;
+    const cat      = iCat   >= 0 ? cols[iCat]?.replace(/^"|"$/g,"").trim()   : "Administrative";
+    const winNote  = iWin   >= 0 ? cols[iWin]?.replace(/^"|"$/g,"").trim()   : "";
+
+    if (taskName) result[clientName].tasks.push({ name: taskName, date: dateStr, hours, va: vaName, cat });
+    if (winNote)  result[clientName].wins.push({ va: vaName, note: winNote, date: dateStr });
+  }
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 // ── Build CLIENTS list from sheetData + CLIENT_META ───────────────────────────
@@ -741,10 +803,20 @@ function BarRow({ label, value, max, color }) {
 
 
 // ── VA Dashboard helpers ──────────────────────────────────────────────────────
+const VA_MASTER_LIST = [
+  "Aldwin", "Alex Castillo", "Allen", "Charm", "Clyde",
+  "DJ", "Echo", "Ellaine", "Fiona", "Hannah",
+  "Joseph", "Portia", "Tashia"
+];
+
 function getAllVAs(sheetData) {
-  const vas = new Set();
-  Object.values(sheetData).forEach(cd => cd.tasks.forEach(t => vas.add(t.va)));
-  return Array.from(vas).filter(Boolean).sort();
+  // Always show master list; also include any VAs from live sheet not yet in master
+  const fromSheet = new Set();
+  Object.values(sheetData).forEach(cd => cd.tasks.forEach(t => { if (t.va) fromSheet.add(t.va); }));
+  const combined = new Set([...VA_MASTER_LIST, ...fromSheet]);
+  // Remove known clients that may appear as VA names
+  ["Leo Morales"].forEach(c => combined.delete(c));
+  return Array.from(combined).sort();
 }
 
 function getVAData(vaName, period, sheetData) {
@@ -1221,7 +1293,7 @@ function MainPanel({ client, period, sheetData }) {
     try {
       const res = await fetch("/api/anthropic/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        headers: { "Content-Type": "application/json", "x-api-key": (() => { if (!window.__AVA_API_KEY__) { window.__AVA_API_KEY__ = prompt("Enter your Anthropic API key (saved for this session):"); } return window.__AVA_API_KEY__; })(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 4000,
@@ -1477,6 +1549,23 @@ export default function App() {
 
   useEffect(() => { fetchLiveData(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleCSVImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const parsed = parseCSVData(ev.target.result);
+      if (parsed) {
+        setSheetData(parsed);
+        setSyncStatus("csv");
+      } else {
+        alert("Could not parse CSV. Make sure it has the right columns.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // reset so same file can be re-imported
+  };
+
   const [appTab, setAppTab] = useState("client");
 
   return (
@@ -1486,14 +1575,19 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 28 }}>
           <div style={{ width: 22, height: 22, borderRadius: 5, background: TEAL, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, color: "#fff" }}>A</div>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>Ava KPI</span>
-          <span style={{ fontSize: 9, color: syncStatus === "ok" ? GREEN : syncStatus === "syncing" ? GOLD : "#475569", marginLeft: 4 }}>
-            {syncStatus === "ok" ? "● Live" : syncStatus === "syncing" ? "● Syncing" : "● Cached"}
+          <span style={{ fontSize: 9, color: syncStatus === "ok" ? GREEN : syncStatus === "csv" ? GOLD : syncStatus === "syncing" ? GOLD : "#475569", marginLeft: 4 }}>
+            {syncStatus === "ok" ? "● Live" : syncStatus === "csv" ? "● CSV" : syncStatus === "syncing" ? "● Syncing" : "● Cached"}
           </span>
           <button onClick={fetchLiveData} disabled={syncStatus === "syncing"}
             title="Refresh data from Google Sheet"
             style={{ marginLeft: 6, padding: "2px 7px", borderRadius: 5, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: syncStatus === "syncing" ? "#334155" : "#64748b", cursor: syncStatus === "syncing" ? "default" : "pointer", fontSize: 11, lineHeight: 1 }}>
             {syncStatus === "syncing" ? "⏳" : "🔄"}
           </button>
+          <label title="Import CSV from Google Sheets"
+            style={{ marginLeft: 6, padding: "2px 9px", borderRadius: 5, border: `1px solid ${GOLD}40`, background: `${GOLD}10`, color: GOLD, cursor: "pointer", fontSize: 11, lineHeight: 1.8, display: "inline-flex", alignItems: "center", gap: 4 }}>
+            📁 Import CSV
+            <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
+          </label>
         </div>
         {[["client", "📋 Client KPIs"], ["va", "👤 VA Dashboard"]].map(([tab, label]) => (
           <button key={tab} onClick={() => setAppTab(tab)}
