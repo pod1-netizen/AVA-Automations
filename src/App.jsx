@@ -809,6 +809,8 @@ const VA_MASTER_LIST = [
   "Joseph", "Portia", "Tashia"
 ];
 
+const VA_NAME_MAP = {"charm":"Charm","Charn":"Charm","Cly":"Clyde","Echi":"Echo","Alex Castilllo":"Alex Castillo","ellaine":"Ellaine"};
+function normalizeVAName(n){return VA_NAME_MAP[n]||n;}
 function getAllVAs(sheetData) {
   // Always show master list; also include any VAs from live sheet not yet in master
   const fromSheet = new Set();
