@@ -1,3 +1,5 @@
+import { useState, useEffect, useCallback } from "react";
+
 const NAVY = "#07111f";
 const NAVY2 = "#0c1d35";
 const GOLD = "#f0b429";
