@@ -805,19 +805,27 @@ function BarRow({ label, value, max, color }) {
 // ── VA Dashboard helpers ──────────────────────────────────────────────────────
 const VA_MASTER_LIST = [
   "Aldwin", "Alex Castillo", "Allen", "Charm", "Clyde",
-  "DJ", "Echo", "Ellaine", "Fiona", "Hannah",
+  "DJ", "Echo", "Ellaine", "Hannah",
   "Joseph", "Portia", "Tashia"
 ];
 
-const VA_NAME_MAP = {"charm":"Charm","Charn":"Charm","Cly":"Clyde","Echi":"Echo","Alex Castilllo":"Alex Castillo","ellaine":"Ellaine"};
-function normalizeVAName(n){return VA_NAME_MAP[n]||n;}
+const VA_NAME_MAP = {
+  "charm": "Charm", "Charn": "Charm",
+  "Cly": "Clyde",
+  "Echi": "Echo",
+  "Alex Castilllo": "Alex Castillo",
+  "ellaine": "Ellaine",
+};
+
+function normalizeVAName(name) {
+  return VA_NAME_MAP[name] || name;
+}
+
 function getAllVAs(sheetData) {
-  // Always show master list; also include any VAs from live sheet not yet in master
   const fromSheet = new Set();
-  Object.values(sheetData).forEach(cd => cd.tasks.forEach(t => { if (t.va) fromSheet.add(t.va); }));
+  Object.values(sheetData).forEach(cd => cd.tasks.forEach(t => { if (t.va) fromSheet.add(normalizeVAName(t.va)); }));
   const combined = new Set([...VA_MASTER_LIST, ...fromSheet]);
-  // Remove known clients that may appear as VA names
-  ["Leo Morales"].forEach(c => combined.delete(c));
+  ["Leo Morales", "Fiona"].forEach(c => combined.delete(c));
   return Array.from(combined).sort();
 }
 
@@ -825,7 +833,7 @@ function getVAData(vaName, period, sheetData) {
   if (!vaName || !period) return null;
   const tasks = [], clientHours = {}, cats = {}, wins = [];
   Object.entries(sheetData).forEach(([clientName, cd]) => {
-    const filtered = cd.tasks.filter(t => t.va === vaName && t.date >= period.start && t.date <= period.end);
+    const filtered = cd.tasks.filter(t => normalizeVAName(t.va) === vaName && t.date >= period.start && t.date <= period.end);
     filtered.forEach(t => {
       tasks.push({ ...t, client: clientName });
       clientHours[clientName] = Math.round(((clientHours[clientName] || 0) + t.hours) * 100) / 100;
