@@ -1535,31 +1535,11 @@ function MainPanel({ client, period, sheetData }) {
 export default function App() {
   const [sel, setSel] = useState(null);
   const [selPeriod, setSelPeriod] = useState(null);
-  const [sheetData, setSheetData] = useState(FALLBACK_SHEET_DATA);
-  const [syncStatus, setSyncStatus] = useState("syncing");
+  const [sheetData, setSheetData] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("empty");
 
   // Build clients list from current sheetData
-  const clients = useMemo(() => buildClients(sheetData), [sheetData]);
-
-  const fetchLiveData = () => {
-    setSyncStatus("syncing");
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    fetch(APPS_SCRIPT_URL, { signal: controller.signal })
-      .then(r => r.json())
-      .then(json => {
-        if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
-          setSheetData(parseLiveData(json.data));
-          setSyncStatus("ok");
-        } else {
-          setSyncStatus("fallback");
-        }
-      })
-      .catch(() => setSyncStatus("fallback"))
-      .finally(() => clearTimeout(timer));
-  };
-
-  useEffect(() => { fetchLiveData(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const clients = useMemo(() => sheetData ? buildClients(sheetData) : [], [sheetData]);
 
   const handleCSVImport = (e) => {
     const file = e.target.files[0];
@@ -1570,12 +1550,14 @@ export default function App() {
       if (parsed) {
         setSheetData(parsed);
         setSyncStatus("csv");
+        setSel(null);
+        setSelPeriod(null);
       } else {
-        alert("Could not parse CSV. Make sure it has the right columns.");
+        alert("Could not parse CSV. Make sure it matches the Ava KPI Tracker format.");
       }
     };
     reader.readAsText(file);
-    e.target.value = ""; // reset so same file can be re-imported
+    e.target.value = "";
   };
 
   const [appTab, setAppTab] = useState("client");
@@ -1587,17 +1569,12 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 28 }}>
           <div style={{ width: 22, height: 22, borderRadius: 5, background: TEAL, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, color: "#fff" }}>A</div>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>Ava KPI</span>
-          <span style={{ fontSize: 9, color: syncStatus === "ok" ? GREEN : syncStatus === "csv" ? GOLD : syncStatus === "syncing" ? GOLD : "#475569", marginLeft: 4 }}>
-            {syncStatus === "ok" ? "● Live" : syncStatus === "csv" ? "● CSV" : syncStatus === "syncing" ? "● Syncing" : "● Cached"}
+          <span style={{ fontSize: 9, color: syncStatus === "csv" ? GREEN : "#475569", marginLeft: 4 }}>
+            {syncStatus === "csv" ? "● CSV Loaded" : "● No Data"}
           </span>
-          <button onClick={fetchLiveData} disabled={syncStatus === "syncing"}
-            title="Refresh data from Google Sheet"
-            style={{ marginLeft: 6, padding: "2px 7px", borderRadius: 5, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: syncStatus === "syncing" ? "#334155" : "#64748b", cursor: syncStatus === "syncing" ? "default" : "pointer", fontSize: 11, lineHeight: 1 }}>
-            {syncStatus === "syncing" ? "⏳" : "🔄"}
-          </button>
-          <label title="Import CSV from Google Sheets"
-            style={{ marginLeft: 6, padding: "2px 9px", borderRadius: 5, border: `1px solid ${GOLD}40`, background: `${GOLD}10`, color: GOLD, cursor: "pointer", fontSize: 11, lineHeight: 1.8, display: "inline-flex", alignItems: "center", gap: 4 }}>
-            📁 Import CSV
+          <label title="Import CSV exported from Google Sheets"
+            style={{ marginLeft: 8, padding: "3px 10px", borderRadius: 5, border: `1px solid ${GOLD}60`, background: `${GOLD}15`, color: GOLD, cursor: "pointer", fontSize: 11, lineHeight: 1.8, display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 700 }}>
+            📁 {syncStatus === "csv" ? "Re-import CSV" : "Import CSV"}
             <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
           </label>
         </div>
@@ -1610,7 +1587,19 @@ export default function App() {
       </div>
       {/* Content */}
       <div style={{ flex: 1, display: appTab === "client" ? "grid" : "block", gridTemplateColumns: "265px 1fr", overflow: "hidden" }}>
-        {appTab === "client" && (
+        {!sheetData && (
+          <div style={{ gridColumn: "1/-1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "80vh", gap: 18 }}>
+            <div style={{ fontSize: 52 }}>📊</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>Import your KPI Tracker CSV</div>
+            <div style={{ fontSize: 13, color: "#475569", textAlign: "center", maxWidth: 380 }}>Export the <strong style={{color:"#94a3b8"}}>AVA Master KPI Tracker</strong> sheet as CSV, then import it here to generate reports.</div>
+            <label style={{ marginTop: 8, padding: "13px 28px", borderRadius: 10, border: `2px solid ${GOLD}`, background: `${GOLD}15`, color: GOLD, cursor: "pointer", fontSize: 14, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 8 }}>
+              📁 Import CSV
+              <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
+            </label>
+            <div style={{ fontSize: 11, color: "#334155" }}>Google Sheets → File → Download → CSV</div>
+          </div>
+        )}
+        {sheetData && appTab === "client" && (
           <>
             <Sidebar sel={sel} onSel={setSel} selPeriod={selPeriod} onPeriod={setSelPeriod} clients={clients} syncStatus={syncStatus} sheetData={sheetData} />
             <div style={{ padding: "28px 36px", overflowY: "auto", height: "calc(100vh - 46px)" }}>
@@ -1618,7 +1607,7 @@ export default function App() {
             </div>
           </>
         )}
-        {appTab === "va" && (
+        {sheetData && appTab === "va" && (
           <div style={{ height: "calc(100vh - 46px)", overflowY: "auto" }}>
             <VADashboard sheetData={sheetData} />
           </div>
