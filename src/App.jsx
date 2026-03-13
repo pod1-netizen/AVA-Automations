@@ -236,6 +236,7 @@ function parseCSVData(csvText) {
   const iTask   = idx(["taskscompleted","taskname","task"]);
   const iWin    = idx(["specialwins","winnote","win","note"]);
   const iDate   = idx(["formatteddate","date","timestamp"]);
+  const iTS     = idx(["timestamp","timestamp_"]);
 
   function normalizeCategory(raw) {
     if (!raw) return "Administrative";
@@ -268,6 +269,17 @@ function parseCSVData(csvText) {
     return "";
   }
 
+  // Parse full datetime from Time Stamp column (MM-DD-YYYY HH:MM)
+  function parseDateTime(raw) {
+    if (!raw) return null;
+    const m = raw.match(/(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2})/);
+    if (m) {
+      const [,mo,d,y,h,min] = m;
+      return new Date(`${y}-${mo.padStart(2,"0")}-${d.padStart(2,"0")}T${h.padStart(2,"0")}:${min}:00`);
+    }
+    return null;
+  }
+
   const result = {};
   for (let i = 1; i < rows.length; i++) {
     const cols = rows[i];
@@ -287,7 +299,9 @@ function parseCSVData(csvText) {
     const cat      = normalizeCategory(catRaw);
     const taskName = taskRaw.split(/\n/).map(l => l.trim()).filter(Boolean)[0] || "";
 
-    if (taskName) result[clientName].tasks.push({ name: taskName, date: dateStr, hours, va: vaName, cat });
+    const rawTS    = iTS >= 0 ? (cols[iTS] || "") : "";
+    const taskDT   = parseDateTime(rawTS.trim()) || (dateStr ? new Date(dateStr + "T12:00:00") : null);
+    if (taskName) result[clientName].tasks.push({ name: taskName, date: dateStr, datetime: taskDT, hours, va: vaName, cat });
     const winClean = winNote.replace(/^n\/a$/i,"").replace(/^na$/i,"");
     if (winClean) result[clientName].wins.push({ va: vaName, note: winClean, date: dateStr });
   }
@@ -517,10 +531,13 @@ function buildDirectReport(client, period, data, slackMessages = []) {
     const turnarounds = [];
     slackRequests.forEach(msg => {
       const reqDate = new Date(parseFloat(msg.ts) * 1000);
-      // Find closest task completed AFTER this request
+      // Find closest task completed AFTER this request using full datetime if available
       const after = allTasks
-        .map(t => ({ ...t, diff: (new Date(t.date) - reqDate) / (1000 * 3600) }))
-        .filter(t => t.diff >= 0 && t.diff < 168) // within 7 days
+        .map(t => {
+          const tDate = t.datetime instanceof Date ? t.datetime : (t.date ? new Date(t.date + "T12:00:00") : null);
+          return { ...t, diff: tDate ? (tDate - reqDate) / (1000 * 3600) : null };
+        })
+        .filter(t => t.diff !== null && t.diff >= 0 && t.diff < 168) // within 7 days
         .sort((a, b) => a.diff - b.diff);
       if (after.length > 0) turnarounds.push(after[0].diff);
     });
