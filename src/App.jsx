@@ -1389,13 +1389,14 @@ function MainPanel({ client, period, sheetData }) {
   const [errorMsg, setErrorMsg] = useState("");
   const [slackStatus, setSlackStatus] = useState("idle");
   const [slackMessages, setSlackMessages] = useState([]);
+  const [slackPreview, setSlackPreview] = useState(false);
   const data = useMemo(() => {
     if (!client?.dataKey || !period) return null;
     const raw = sheetData[client.dataKey];
     return raw ? filterData(raw, period) : null;
   }, [client, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useMemo(() => { setStatus("idle"); setReportData(null); setSlackMessages([]); setSlackStatus("idle"); }, [client, period]);
+  useMemo(() => { setStatus("idle"); setReportData(null); setSlackMessages([]); setSlackStatus("idle"); setSlackPreview(false); }, [client, period]);
 
   const fetchSlack = async () => {
     if (!client?.slack || !period) return;
@@ -1630,20 +1631,49 @@ function MainPanel({ client, period, sheetData }) {
 
       {/* Slack fetch */}
       {status === "idle" && client?.slack && (
-        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", marginBottom: 2 }}>💬 Slack Context</div>
-            <div style={{ fontSize: 10, color: "#475569" }}>
-              {slackStatus === "idle" && `Pull messages from ${client.slack}`}
-              {slackStatus === "loading" && "Fetching messages..."}
-              {slackStatus === "ok" && `✅ ${slackMessages.length} messages loaded from ${client.slack}`}
-              {slackStatus === "empty" && `⚠️ No messages found in ${client.slack} for this period`}
+        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", marginBottom: 2 }}>💬 Slack Context</div>
+              <div style={{ fontSize: 10, color: "#475569" }}>
+                {slackStatus === "idle" && `Pull messages from ${client.slack}`}
+                {slackStatus === "loading" && "Fetching messages..."}
+                {slackStatus === "ok" && `✅ ${slackMessages.length} messages loaded from ${client.slack}`}
+                {slackStatus === "empty" && `⚠️ No messages found in ${client.slack} for this period`}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              {slackStatus === "ok" && (
+                <button onClick={() => setSlackPreview(p => !p)}
+                  style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "#64748b", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                  {slackPreview ? "▲ Hide" : "▼ Preview"}
+                </button>
+              )}
+              <button onClick={fetchSlack} disabled={slackStatus === "loading"}
+                style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid #8b5cf6`, background: slackStatus === "ok" ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)", color: slackStatus === "ok" ? "#c4b5fd" : "#8b5cf6", cursor: slackStatus === "loading" ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>
+                {slackStatus === "loading" ? "⏳ Loading..." : slackStatus === "ok" ? "🔄 Refresh" : "📥 Fetch Slack"}
+              </button>
             </div>
           </div>
-          <button onClick={fetchSlack} disabled={slackStatus === "loading"}
-            style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid #8b5cf6`, background: slackStatus === "ok" ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)", color: slackStatus === "ok" ? "#c4b5fd" : "#8b5cf6", cursor: slackStatus === "loading" ? "default" : "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>
-            {slackStatus === "loading" ? "⏳ Loading..." : slackStatus === "ok" ? "🔄 Refresh" : "📥 Fetch Slack"}
-          </button>
+          {/* Message preview */}
+          {slackStatus === "ok" && slackPreview && (
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", maxHeight: 280, overflowY: "auto", padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {slackMessages.slice(-30).map((m, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg,#8b5cf6,#6d28d9)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                    {(m.user || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#c4b5fd" }}>{m.user}</span>
+                      <span style={{ fontSize: 9, color: "#334155" }}>{m.ts ? new Date(parseFloat(m.ts) * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5, wordBreak: "break-word" }}>{m.text}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
