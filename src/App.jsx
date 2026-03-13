@@ -1351,23 +1351,26 @@ function getSlackToken() {
 async function fetchSlackMessages(channelName, periodStart, periodEnd) {
   const token = getSlackToken();
   if (!token) return [];
+
+  async function slackProxy(endpoint, params = {}) {
+    const qs = new URLSearchParams({ endpoint, ...params }).toString();
+    const res = await fetch(`/api/slack?${qs}`, {
+      headers: { "x-slack-token": token }
+    });
+    return res.json();
+  }
+
   try {
     // Get channel list to find channel ID
-    const listRes = await fetch(`https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200`, {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    const listData = await listRes.json();
+    const listData = await slackProxy("conversations.list", { types: "public_channel,private_channel", limit: "200" });
     if (!listData.ok) throw new Error(listData.error);
     const channel = listData.channels?.find(c => c.name === channelName.replace("#",""));
-    if (!channel) return [];
+    if (!channel) { console.warn("Channel not found:", channelName); return []; }
 
     // Fetch history within period
-    const oldest = new Date(periodStart).getTime() / 1000;
-    const latest = new Date(periodEnd).getTime() / 1000 + 86400;
-    const histRes = await fetch(`https://slack.com/api/conversations.history?channel=${channel.id}&oldest=${oldest}&latest=${latest}&limit=200`, {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    const histData = await histRes.json();
+    const oldest = String(new Date(periodStart).getTime() / 1000);
+    const latest = String(new Date(periodEnd).getTime() / 1000 + 86400);
+    const histData = await slackProxy("conversations.history", { channel: channel.id, oldest, latest, limit: "200" });
     if (!histData.ok) throw new Error(histData.error);
 
     // Get user names
@@ -1375,8 +1378,7 @@ async function fetchSlackMessages(channelName, periodStart, periodEnd) {
     const userMap = {};
     await Promise.all(userIds.map(async uid => {
       try {
-        const uRes = await fetch(`https://slack.com/api/users.info?user=${uid}`, { headers: { "Authorization": `Bearer ${token}` } });
-        const uData = await uRes.json();
+        const uData = await slackProxy("users.info", { user: uid });
         userMap[uid] = uData.user?.real_name || uData.user?.name || uid;
       } catch { userMap[uid] = uid; }
     }));
