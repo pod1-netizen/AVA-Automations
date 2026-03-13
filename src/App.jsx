@@ -1555,6 +1555,8 @@ function MainPanel({ client, period, sheetData }) {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
+  const directReport = useMemo(() => buildDirectReport(client, period, data), [client, period, data]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!client && !period) return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh", gap: 14, opacity: 0.4 }}>
       <div style={{ fontSize: 48 }}>📊</div>
@@ -1574,8 +1576,6 @@ function MainPanel({ client, period, sheetData }) {
     oppHigh: (data.totalHours * 2.5 * 150).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     avoid: (data.totalHours * 2.5 * 75).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   } : null;
-
-  const directReport = useMemo(() => buildDirectReport(client, period, data), [client, period, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const previewPDF = () => {
     if (!directReport) return;
