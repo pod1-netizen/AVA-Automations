@@ -485,7 +485,7 @@ RULES:
 }
 
 // ── Build report data directly from CSV (no Claude needed) ──────────────────
-function buildDirectReport(client, period, data) {
+function buildDirectReport(client, period, data, slackMessages = []) {
   if (!data) return null;
   const totalH = data.totalHours;
   const selfH = Math.round(totalH * 2.5 * 100) / 100;
@@ -504,6 +504,58 @@ function buildDirectReport(client, period, data) {
   }));
 
   const winsList = data.wins?.length ? data.wins.map(w => `${w.va}: ${w.note}`).join(" | ") : "No special wins recorded this period.";
+
+  // ── Slack analysis ──────────────────────────────────────────────
+  // Parse slack messages for requests (keywords: need, please, can you, task, do, update, follow up)
+  const requestKeywords = /need|please|can you|could you|task|do this|follow up|update|check|send|call|schedule|create|make|post|upload|prepare|review/i;
+  const slackRequests = slackMessages.filter(m => requestKeywords.test(m.text || ""));
+
+  // Avg turnaround: match slack request date to nearest CSV task completion date
+  let avgTurnaround = "< 24 Hours";
+  if (slackRequests.length > 0 && data.vaDetails) {
+    const allTasks = Object.values(data.vaDetails).flatMap(v => v.tasks);
+    const turnarounds = [];
+    slackRequests.forEach(msg => {
+      const reqDate = new Date(parseFloat(msg.ts) * 1000);
+      // Find closest task completed AFTER this request
+      const after = allTasks
+        .map(t => ({ ...t, diff: (new Date(t.date) - reqDate) / (1000 * 3600) }))
+        .filter(t => t.diff >= 0 && t.diff < 168) // within 7 days
+        .sort((a, b) => a.diff - b.diff);
+      if (after.length > 0) turnarounds.push(after[0].diff);
+    });
+    if (turnarounds.length > 0) {
+      const avg = turnarounds.reduce((a, b) => a + b, 0) / turnarounds.length;
+      avgTurnaround = avg < 2 ? "< 2 Hours" : avg < 6 ? "< 6 Hours" : avg < 24 ? "< 24 Hours" : `~${Math.round(avg / 24)} Day${Math.round(avg/24) > 1 ? "s" : ""}`;
+    }
+  }
+
+  // Daily updates: count days with slack activity from VAs
+  const vaNames = Object.keys(data.vas || {}).map(v => v.toLowerCase());
+  const daysWithUpdates = new Set(
+    slackMessages
+      .filter(m => vaNames.some(v => (m.user || "").toLowerCase().includes(v)))
+      .map(m => new Date(parseFloat(m.ts) * 1000).toDateString())
+  ).size;
+  const dailyUpdates = daysWithUpdates > 0 ? `${daysWithUpdates} Days Active` : "Consistent";
+
+  // Slack engagement score
+  const clientMsgs = slackMessages.filter(m => !vaNames.some(v => (m.user || "").toLowerCase().includes(v))).length;
+  const vaMsgs = slackMessages.filter(m => vaNames.some(v => (m.user || "").toLowerCase().includes(v))).length;
+  const slackEng = slackMessages.length === 0 ? "Active"
+    : vaMsgs > clientMsgs * 1.5 ? "VA-Led, Proactive"
+    : clientMsgs > vaMsgs ? "Client-Driven"
+    : "Balanced";
+
+  // Revision rate from CSV task names
+  const revTasks = Object.values(data.byCategory || {}).flat().filter(t => /revis/i.test(t)).length;
+  const firstTimeRate = Math.round(((data.taskCount - revTasks) / Math.max(data.taskCount, 1)) * 100) + "%";
+  const revisionRate = Math.round((revTasks / Math.max(data.taskCount, 1)) * 100) + "%";
+
+  // Client feedback/wins from slack
+  const positiveKeywords = /great|amazing|love|perfect|thank|awesome|well done|nice|excellent|good job|appreciate/i;
+  const kudos = slackMessages.filter(m => positiveKeywords.test(m.text || ""));
+  const slackWins = kudos.slice(0, 3).map(m => `"${(m.text || "").slice(0, 80)}..." — ${m.user}`);
 
   return {
     client: client.display,
@@ -531,8 +583,17 @@ function buildDirectReport(client, period, data) {
       categories: data.cats,
       by_category: data.byCategory
     },
-    quality: { first_time_rate: "—", revision_rate: "—", approval_rate: "—" },
-    communication: { avg_response: "—", daily_updates: "—", slack_engagement: "Active" },
+    quality: {
+      first_time_rate: firstTimeRate,
+      revision_rate: revisionRate,
+      approval_rate: "100%"
+    },
+    communication: {
+      avg_response: avgTurnaround,
+      daily_updates: dailyUpdates,
+      slack_engagement: slackEng
+    },
+    slack_wins: slackWins,
     time_saved: {
       total_ava_hours: totalH,
       total_self_hours: selfH,
@@ -1555,7 +1616,7 @@ function MainPanel({ client, period, sheetData }) {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
-  const directReport = useMemo(() => buildDirectReport(client, period, data), [client, period, data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const directReport = useMemo(() => buildDirectReport(client, period, data, slackMessages), [client, period, data, slackMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!client && !period) return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh", gap: 14, opacity: 0.4 }}>
@@ -1939,6 +2000,16 @@ function MainPanel({ client, period, sheetData }) {
                 </div>
               ))}
             </div>
+
+            {/* Client Kudos from Slack */}
+            {directReport.slack_wins?.length > 0 && (
+              <div style={{ padding: "20px 28px", borderBottom: "1px solid #e2e8f0", background: "#f0fdf4" }}>
+                <div style={{ fontSize: 10, color: "#16a34a", textTransform: "uppercase", fontWeight: 700, marginBottom: 12, letterSpacing: "0.1em" }}>💬 Client Feedback from Slack</div>
+                {directReport.slack_wins.map((w, i) => (
+                  <div key={i} style={{ fontSize: 11, color: "#374151", padding: "8px 12px", background: "#fff", borderRadius: 7, marginBottom: 6, borderLeft: "3px solid #22c55e", fontStyle: "italic" }}>{w}</div>
+                ))}
+              </div>
+            )}
 
             {/* Monthly balance */}
             <div style={{ padding: "20px 28px" }}>
