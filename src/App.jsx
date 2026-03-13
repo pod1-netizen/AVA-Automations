@@ -1303,7 +1303,7 @@ function MainPanel({ client, period, sheetData }) {
     let d = 0;
     const iv = setInterval(() => { d = (d + 1) % 4; setDots(d); }, 400);
     try {
-      const res = await fetch("/api/anthropic/v1/messages", {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": (() => { if (!window.__AVA_API_KEY__) { window.__AVA_API_KEY__ = prompt("Enter your Anthropic API key (saved for this session):"); } return window.__AVA_API_KEY__; })(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({
