@@ -258,7 +258,7 @@ function parseCSVData(csvText) {
     if (longMatch) {
       const [,mon,day,year] = longMatch;
       const m = monthNames[mon] || "01";
-      return `${year}-${m}-${day.padStart(2,"0")}`;
+      return `${year}-${m}-${String(parseInt(day)).padStart(2,"0")}`;
     }
     const mdyMatch = raw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if (mdyMatch) {
@@ -280,7 +280,7 @@ function parseCSVData(csvText) {
     const taskRaw  = iTask  >= 0 ? (cols[iTask]  || "") : "";
     const vaRaw    = iVA    >= 0 ? (cols[iVA]    || "").trim() : "";
     const vaName   = normalizeVAName(vaRaw);
-    const hours    = iHours >= 0 ? parseFloat(cols[iHours]) || 0 : 0;
+    const hours    = iHours >= 0 ? parseFloat((cols[iHours] || "0").replace(/[^0-9.]/g, "").trim()) || 0 : 0;
     const catRaw   = iCat   >= 0 ? (cols[iCat]   || "") : "";
     const winNote  = iWin   >= 0 ? (cols[iWin]   || "").trim() : "";
     const dateStr  = parseDate(rawDate.trim());
