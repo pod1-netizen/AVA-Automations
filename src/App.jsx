@@ -1643,12 +1643,10 @@ function MainPanel({ client, period, sheetData }) {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              {slackStatus === "ok" && (
-                <button onClick={() => setSlackPreview(p => !p)}
-                  style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "#64748b", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
-                  {slackPreview ? "▲ Hide" : "▼ Preview"}
-                </button>
-              )}
+              <button onClick={() => setSlackPreview(p => !p)}
+                style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: slackPreview ? "rgba(255,255,255,0.08)" : "transparent", color: slackMessages.length > 0 ? "#94a3b8" : "#334155", cursor: slackMessages.length > 0 ? "pointer" : "default", fontSize: 11, fontWeight: 600 }}>
+                {slackPreview ? "▲ Hide" : "▼ Preview"}
+              </button>
               <button onClick={fetchSlack} disabled={slackStatus === "loading"}
                 style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid #8b5cf6`, background: slackStatus === "ok" ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)", color: slackStatus === "ok" ? "#c4b5fd" : "#8b5cf6", cursor: slackStatus === "loading" ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>
                 {slackStatus === "loading" ? "⏳ Loading..." : slackStatus === "ok" ? "🔄 Refresh" : "📥 Fetch Slack"}
@@ -1775,4 +1773,3 @@ export default function App() {
     </div>
   );
 }
-// Fri 13 Mar 2026 09:49:15 PDT
