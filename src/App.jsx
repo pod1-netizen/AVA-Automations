@@ -520,30 +520,32 @@ function buildDirectReport(client, period, data, slackMessages = []) {
   const winsList = data.wins?.length ? data.wins.map(w => `${w.va}: ${w.note}`).join(" | ") : "No special wins recorded this period.";
 
   // ── Slack analysis ──────────────────────────────────────────────
-  // Parse slack messages for requests (keywords: need, please, can you, task, do, update, follow up)
-  const requestKeywords = /need|please|can you|could you|task|do this|follow up|update|check|send|call|schedule|create|make|post|upload|prepare|review/i;
-  const slackRequests = slackMessages.filter(m => requestKeywords.test(m.text || ""));
+  // Avg Response Time: time between client message → VA reply, scored vs 2-min target
+  let avgTurnaround = "N/A";
+  if (slackMessages.length > 1) {
+    const vaNames = Object.keys(data.vas || {}).map(v => v.toLowerCase());
+    const isVA = (user) => vaNames.some(v => (user || "").toLowerCase().includes(v));
 
-  // Avg turnaround: match slack request date to nearest CSV task completion date
-  let avgTurnaround = "< 24 Hours";
-  if (slackRequests.length > 0 && data.vaDetails) {
-    const allTasks = Object.values(data.vaDetails).flatMap(v => v.tasks);
-    const turnarounds = [];
-    slackRequests.forEach(msg => {
-      const reqDate = new Date(parseFloat(msg.ts) * 1000);
-      // Find closest task completed AFTER this request using full datetime if available
-      const after = allTasks
-        .map(t => {
-          const tDate = t.datetime instanceof Date ? t.datetime : (t.date ? new Date(t.date + "T12:00:00") : null);
-          return { ...t, diff: tDate ? (tDate - reqDate) / (1000 * 3600) : null };
-        })
-        .filter(t => t.diff !== null && t.diff >= 0 && t.diff < 168) // within 7 days
-        .sort((a, b) => a.diff - b.diff);
-      if (after.length > 0) turnarounds.push(after[0].diff);
-    });
-    if (turnarounds.length > 0) {
-      const avg = turnarounds.reduce((a, b) => a + b, 0) / turnarounds.length;
-      avgTurnaround = avg < 2 ? "< 2 Hours" : avg < 6 ? "< 6 Hours" : avg < 24 ? "< 24 Hours" : `~${Math.round(avg / 24)} Day${Math.round(avg/24) > 1 ? "s" : ""}`;
+    const responseTimes = []; // in seconds
+    for (let i = 0; i < slackMessages.length - 1; i++) {
+      const curr = slackMessages[i];
+      const next = slackMessages[i + 1];
+      // Client message followed by VA reply
+      if (!isVA(curr.user) && isVA(next.user)) {
+        const diff = parseFloat(next.ts) - parseFloat(curr.ts);
+        if (diff > 0 && diff < 86400) { // ignore gaps > 24h (different conversations)
+          responseTimes.push(diff);
+        }
+      }
+    }
+
+    if (responseTimes.length > 0) {
+      const avgSecs = responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
+      const TARGET_SECS = 120; // 2 minutes = 100%
+      // Score: 100% if <= 2min, drops as response time grows, floor at 0%
+      const score = Math.max(0, Math.round(100 * Math.min(1, TARGET_SECS / avgSecs)));
+      const avgMins = Math.round(avgSecs / 60);
+      avgTurnaround = `${score}% (avg ${avgMins < 60 ? avgMins + " min" : Math.round(avgMins/60) + " hr"})`;
     }
   }
 
