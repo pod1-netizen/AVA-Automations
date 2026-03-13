@@ -235,8 +235,8 @@ function parseCSVData(csvText) {
   const iCat    = idx(["taskcategory","category","cat"]);
   const iTask   = idx(["taskscompleted","taskname","task"]);
   const iWin    = idx(["specialwins","winnote","win","note"]);
-  const iDate   = idx(["formatteddate","date","timestamp"]);
-  const iTS     = idx(["timestamp","timestamp_"]);
+  const iDate   = idx(["formatteddate","formatted"]);
+  const iTS     = idx(["timestamp","time stamp","timestampcolumn"]);
 
   function normalizeCategory(raw) {
     if (!raw) return "Administrative";
