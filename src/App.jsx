@@ -142,6 +142,7 @@ const CLIENT_META = [
   { display: "Ray Guardado & Fiona Santos", slack: "#kinetic-ray-guardado-and-fiona-santos",    group: "Kinetic" },
   { display: "Guillean Arradaza",           slack: "#kinetic-guillean-arradaza",                group: "Kinetic" },
   { display: "Tien Le",                     slack: "#kinetic-tien-le-private",                  group: "Kinetic", priv: true },
+  { display: "Kevin Cruz",                   slack: "#kinetic-kevin-cruz",                       group: "Kinetic" },
   { display: "Leo",                         slack: "#leo-team-jacky-nick-joji",                 group: "Leo Team" },
   { display: "Jacky",                       slack: "#leo-team-jacky-nick-joji",                 group: "Leo Team" },
   { display: "Nick",                        slack: "#leo-team-jacky-nick-joji",                 group: "Leo Team" },
@@ -294,12 +295,31 @@ function parseCSVData(csvText) {
 }
 
 
+// ── Client name aliases: CSV name → CLIENT_META display name ─────────────────
+const CLIENT_ALIASES = {
+  "Bryan Cruz":             "Bryan Cruz",
+  "Leo Morales":            "Leo",
+  "Nick Huynh":             "Nick",
+  "Joji Kurotani":          "Joji",
+  "Fiona & Ray":            "Ray Guardado & Fiona Santos",
+  "Joey":                   "Joey Boy Colo",
+  "Joey & Chris":           "Joey Boy Colo",
+  "Alexander Chan":         "7Edu",
+  "AVA (other)":            null,
+  "Kevin":                  "Kevin Cruz",
+};
+
 // ── Build CLIENTS list from sheetData + CLIENT_META ───────────────────────────
 function buildClients(sheetData) {
-  const liveKeys = new Set(Object.keys(sheetData));
+  // Build a normalized lookup: canonical display name → CSV key
+  const csvKeyMap = {};
+  Object.keys(sheetData).forEach(csvKey => {
+    const canonical = CLIENT_ALIASES[csvKey] !== undefined ? CLIENT_ALIASES[csvKey] : csvKey;
+    if (canonical) csvKeyMap[canonical] = csvKey;
+  });
   return CLIENT_META.map(m => ({
     ...m,
-    dataKey: liveKeys.has(m.display) ? m.display : null,
+    dataKey: csvKeyMap[m.display] || null,
   }));
 }
 
@@ -355,7 +375,7 @@ function filterData(rawData, period) {
 }
 
 // ── Prompt — matches Bryan Cruz PDF structure exactly ─────────────────────────
-function buildPrompt(client, period, data) {
+function buildPrompt(client, period, data, slackMessages) {
   const vaList = data ? Object.entries(data.vas).map(([v, h]) => `${v} (${h}h)`).join(", ") : "N/A";
   const catList = data ? Object.entries(data.cats).map(([c, h]) => `${c}: ${h}h`).join(", ") : "N/A";
   const tasksByCat = data ? JSON.stringify(data.byCategory, null, 2) : "{}";
@@ -366,6 +386,9 @@ function buildPrompt(client, period, data) {
   const oppLow = (selfH * 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const oppHigh = (selfH * 150).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const costAvoid = (selfH * 75).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const slackContext = slackMessages && slackMessages.length > 0
+    ? `\n\nSlack Conversation (${client.slack}) — use for wins, kudos, client feedback, and context:\n${slackMessages.slice(0, 80).map(m => `[${m.user}]: ${m.text}`).join("\n")}`
+    : "";
 
   return `You are generating a structured KPI report JSON for Ava Virtual Agents Inc.
 
@@ -376,7 +399,7 @@ Total hours logged: ${totalH}h across ${data?.taskCount || 0} tasks
 VAs active: ${vaList}
 Hours by category: ${catList}
 Tasks by category (use these EXACTLY): ${tasksByCat}
-Client wins/feedback: ${winList}
+Client wins/feedback: ${winList}${slackContext}
 
 Return ONLY a raw JSON object. No markdown. No explanation. No code fences.
 
@@ -863,7 +886,7 @@ function getAllVAs(sheetData) {
   const fromSheet = new Set();
   Object.values(sheetData).forEach(cd => cd.tasks.forEach(t => { if (t.va) fromSheet.add(normalizeVAName(t.va)); }));
   const combined = new Set([...VA_MASTER_LIST, ...fromSheet]);
-  ["Leo Morales", "Fiona"].forEach(c => combined.delete(c));
+  ["Leo Morales", "Fiona", "Leo", "Nick", "Joji", "Jacky", "Alexander Chan", "Kevin"].forEach(c => combined.delete(c));
   return Array.from(combined).sort();
 }
 
@@ -1317,19 +1340,80 @@ function Sidebar({ sel, onSel, selPeriod, onPeriod, clients, syncStatus, sheetDa
   );
 }
 
+// ── Slack helpers ─────────────────────────────────────────────────────────────
+function getSlackToken() {
+  if (!window.__SLACK_TOKEN__) {
+    window.__SLACK_TOKEN__ = prompt("Enter your Slack Bot Token (xoxb-...) to pull channel conversations:\n\nThis is saved for the session only.");
+  }
+  return window.__SLACK_TOKEN__;
+}
+
+async function fetchSlackMessages(channelName, periodStart, periodEnd) {
+  const token = getSlackToken();
+  if (!token) return [];
+  try {
+    // Get channel list to find channel ID
+    const listRes = await fetch(`https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    const listData = await listRes.json();
+    if (!listData.ok) throw new Error(listData.error);
+    const channel = listData.channels?.find(c => c.name === channelName.replace("#",""));
+    if (!channel) return [];
+
+    // Fetch history within period
+    const oldest = new Date(periodStart).getTime() / 1000;
+    const latest = new Date(periodEnd).getTime() / 1000 + 86400;
+    const histRes = await fetch(`https://slack.com/api/conversations.history?channel=${channel.id}&oldest=${oldest}&latest=${latest}&limit=200`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    const histData = await histRes.json();
+    if (!histData.ok) throw new Error(histData.error);
+
+    // Get user names
+    const userIds = [...new Set(histData.messages?.map(m => m.user).filter(Boolean))];
+    const userMap = {};
+    await Promise.all(userIds.map(async uid => {
+      try {
+        const uRes = await fetch(`https://slack.com/api/users.info?user=${uid}`, { headers: { "Authorization": `Bearer ${token}` } });
+        const uData = await uRes.json();
+        userMap[uid] = uData.user?.real_name || uData.user?.name || uid;
+      } catch { userMap[uid] = uid; }
+    }));
+
+    return (histData.messages || [])
+      .filter(m => m.text && m.text.trim())
+      .map(m => ({ user: userMap[m.user] || m.user || "Unknown", text: m.text.replace(/<[^>]+>/g, "").trim(), ts: m.ts }))
+      .reverse();
+  } catch (e) {
+    console.warn("Slack fetch failed:", e.message);
+    return [];
+  }
+}
+
 // ── Main Panel ─────────────────────────────────────────────────────────────────
 function MainPanel({ client, period, sheetData }) {
   const [status, setStatus] = useState("idle");
   const [reportData, setReportData] = useState(null);
   const [dots, setDots] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
+  const [slackStatus, setSlackStatus] = useState("idle");
+  const [slackMessages, setSlackMessages] = useState([]);
   const data = useMemo(() => {
     if (!client?.dataKey || !period) return null;
     const raw = sheetData[client.dataKey];
     return raw ? filterData(raw, period) : null;
   }, [client, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useMemo(() => { setStatus("idle"); setReportData(null); }, [client, period]);
+  useMemo(() => { setStatus("idle"); setReportData(null); setSlackMessages([]); setSlackStatus("idle"); }, [client, period]);
+
+  const fetchSlack = async () => {
+    if (!client?.slack || !period) return;
+    setSlackStatus("loading");
+    const msgs = await fetchSlackMessages(client.slack, period.start, period.end);
+    setSlackMessages(msgs);
+    setSlackStatus(msgs.length > 0 ? "ok" : "empty");
+  };
 
   const generate = async () => {
     if (!client || !period) return;
@@ -1345,7 +1429,7 @@ function MainPanel({ client, period, sheetData }) {
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 4000,
-          messages: [{ role: "user", content: buildPrompt(client, period, data) }]
+          messages: [{ role: "user", content: buildPrompt(client, period, data, slackMessages) }]
         })
       });
       const result = await res.json();
@@ -1554,6 +1638,25 @@ function MainPanel({ client, period, sheetData }) {
         </div>
       )}
 
+      {/* Slack fetch */}
+      {status === "idle" && client?.slack && (
+        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", marginBottom: 2 }}>💬 Slack Context</div>
+            <div style={{ fontSize: 10, color: "#475569" }}>
+              {slackStatus === "idle" && `Pull messages from ${client.slack}`}
+              {slackStatus === "loading" && "Fetching messages..."}
+              {slackStatus === "ok" && `✅ ${slackMessages.length} messages loaded from ${client.slack}`}
+              {slackStatus === "empty" && `⚠️ No messages found in ${client.slack} for this period`}
+            </div>
+          </div>
+          <button onClick={fetchSlack} disabled={slackStatus === "loading"}
+            style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid #8b5cf6`, background: slackStatus === "ok" ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)", color: slackStatus === "ok" ? "#c4b5fd" : "#8b5cf6", cursor: slackStatus === "loading" ? "default" : "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>
+            {slackStatus === "loading" ? "⏳ Loading..." : slackStatus === "ok" ? "🔄 Refresh" : "📥 Fetch Slack"}
+          </button>
+        </div>
+      )}
+
       {/* Generate button */}
       {status === "idle" && (
         <button onClick={generate}
@@ -1561,7 +1664,7 @@ function MainPanel({ client, period, sheetData }) {
           onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"}
           onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}>
           <span style={{ fontSize: 18 }}>🤖</span>
-          Generate KPI Report with Claude
+          Generate KPI Report with Claude {slackMessages.length > 0 ? `+ ${slackMessages.length} Slack msgs` : ""}
         </button>
       )}
     </div>
