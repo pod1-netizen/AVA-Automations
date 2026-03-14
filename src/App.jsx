@@ -1067,6 +1067,7 @@ const VA_MASTER_LIST = [
 const VA_NAME_MAP = {
   "charm": "Charm", "Charn": "Charm",
   "Cly": "Clydel",
+  "Clyde": "Clydel",
   "Echi": "Echo",
   "Alex Castilllo": "Alex Castillo",
   "ellaine": "Ellaine",
