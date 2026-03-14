@@ -2393,23 +2393,26 @@ function PodReport({ sheetData }) {
 
   const vaReports = useMemo(() => {
     if (!selPod || !selPeriod || !sheetData) return [];
-    return allMembers.map(name => {
+    const info = POD_STRUCTURE[selPod];
+    if (!info) return [];
+    const members = [info.leader, ...info.members];
+    return members.map(name => {
       const data = getVAData(name, selPeriod, sheetData);
       if (!data) return null;
       return {
         name,
-        role: name === podInfo.leader ? "Leader" : "Member",
+        role: name === info.leader ? "Leader" : "Member",
         totalHours: data.totalHours,
         taskCount: data.taskCount,
         cats: data.cats,
         clientHours: data.clientHours,
         wins: data.wins,
         rating: getProductivityRating(data),
-        outputRate: Math.round((data.taskCount / data.totalHours) * 10) / 10,
+        outputRate: data.totalHours > 0 ? Math.round((data.taskCount / data.totalHours) * 10) / 10 : 0,
         hiddenHours: Math.round(Object.entries(data.cats).reduce((s,[cat,h]) => s + h*((CAT_COMPLEXITY[cat]||1.5)-1), 0)*10)/10,
       };
     }).filter(Boolean);
-  }, [selPod, selPeriod, sheetData]);
+  }, [selPod, selPeriod, sheetData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totals = useMemo(() => {
     if (!vaReports.length) return null;
