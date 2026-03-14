@@ -505,6 +505,8 @@ const CLIENT_CAPS = {
   "Nick":                          60,
   "Joji":                          60,
   "Jacky":                         60,
+  "Joey Boy Colo":                130,
+  "Chris Yanguas":                130,
   "NSP":                          300,
   "Leo":                          300,
   "Kevin Cruz":                   300,
