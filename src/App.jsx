@@ -1635,7 +1635,7 @@ async function sendKPIToSlack(client, period, directReport) {
     {
       type: "context",
       elements: [
-        { type: "mrkdwn", text: `_Feel free to reach out if you have any questions. — *Ava Virtual Agents Inc.*_` }
+        { type: "mrkdwn", text: `_📌 *Note:* This is a snapshot of your KPI data, not the final report. The actual KPI Report PDF will be delivered to you shortly. Feel free to reach out if you have any questions. — *Ava Virtual Agents Inc.*_` }
       ]
     }
   ];
