@@ -500,6 +500,8 @@ RULES:
 }
 
 // ── Monthly hour caps per client ─────────────────────────────────────────────
+const VA_REPORTING_CHANNEL = "#va-reporting";
+
 const CLIENT_CAPS = {
   "Bryan Cruz":                   130,
   "Ray Guardado & Fiona Santos":  130,
@@ -1042,6 +1044,19 @@ function BarRow({ label, value, max, color }) {
 
 
 // ── VA Dashboard helpers ──────────────────────────────────────────────────────
+const POD_STRUCTURE = {
+  "Pod 1": { leader: "Tashia", members: ["DJ", "Ellaine", "Charm", "Echo", "Allen", "Clydel"] },
+  "Pod 2": { leader: "Portia", members: ["Aldwin", "Alex Castillo", "Hannah", "Joseph"] },
+};
+
+function getVAPod(vaName) {
+  for (const [pod, info] of Object.entries(POD_STRUCTURE)) {
+    if (info.leader === vaName) return { pod, role: "Leader" };
+    if (info.members.includes(vaName)) return { pod, role: "Member" };
+  }
+  return { pod: "Unassigned", role: "VA" };
+}
+
 const VA_MASTER_LIST = [
   "Aldwin", "Alex Castillo", "Allen", "Charm", "Clydel",
   "DJ", "Echo", "Ellaine", "Hannah",
@@ -1122,6 +1137,23 @@ function VADashboard({ sheetData }) {
   const breadth = data ? Object.keys(data.cats).length : 0;
   const hiddenHours = data ? Math.round(Object.entries(data.cats).reduce((s, [cat, h]) => s + h * ((CAT_COMPLEXITY[cat] || 1.5) - 1), 0) * 10) / 10 : 0;
   const rating = data ? getProductivityRating(data) : "";
+  const [vaSlackStatus, setVaSlackStatus] = useState("idle");
+  const [vaSlackError, setVaSlackError] = useState("");
+
+  const handleVASendToSlack = async () => {
+    if (!data || vaSlackStatus === "sending") return;
+    setVaSlackStatus("sending");
+    setVaSlackError("");
+    try {
+      await sendVAReportToSlack(selVA, selPeriod, data, rating, outputRate, hiddenHours);
+      setVaSlackStatus("done");
+      setTimeout(() => setVaSlackStatus("idle"), 5000);
+    } catch (err) {
+      setVaSlackError(err.message);
+      setVaSlackStatus("error");
+      setTimeout(() => setVaSlackStatus("idle"), 6000);
+    }
+  };
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", minHeight: "100vh" }}>
@@ -1180,7 +1212,19 @@ function VADashboard({ sheetData }) {
                   <div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>{selVA}</div>
                     <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>Virtual Assistant · {selPeriod.label}</div>
-                    <div style={{ display: "inline-block", marginTop: 5, padding: "2px 9px", borderRadius: 20, background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.4)", fontSize: 10, color: "#c4b5fd", fontWeight: 700 }}>{rating}</div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 5, flexWrap: "wrap" }}>
+                    <div style={{ padding: "2px 9px", borderRadius: 20, background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.4)", fontSize: 10, color: "#c4b5fd", fontWeight: 700 }}>{rating}</div>
+                    {(() => { const p = getVAPod(selVA); return <div style={{ padding: "2px 9px", borderRadius: 20, background: "rgba(240,180,41,0.15)", border: "1px solid rgba(240,180,41,0.3)", fontSize: 10, color: "#f0b429", fontWeight: 700 }}>{p.pod} · {p.role}</div>; })()}
+                  </div>
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                    <button onClick={handleVASendToSlack} disabled={vaSlackStatus === "sending"}
+                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(74,222,128,0.4)", background: vaSlackStatus === "done" ? "rgba(74,222,128,0.15)" : "rgba(74,222,128,0.08)", color: vaSlackStatus === "done" ? "#22c55e" : vaSlackStatus === "error" ? "#ef4444" : "#4ade80", cursor: vaSlackStatus === "sending" ? "default" : "pointer", fontSize: 10, fontWeight: 700, opacity: vaSlackStatus === "sending" ? 0.7 : 1 }}>
+                      {vaSlackStatus === "sending" ? "⏳ Sending..." : vaSlackStatus === "done" ? "✅ Sent to #va-reporting!" : vaSlackStatus === "error" ? "❌ Failed" : "📤 Send to #va-reporting"}
+                    </button>
+                    {vaSlackStatus === "error" && vaSlackError && (
+                      <div style={{ fontSize: 9, color: "#ef4444" }}>⚠️ {vaSlackError}</div>
+                    )}
+                  </div>
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
@@ -1648,6 +1692,86 @@ async function sendKPIToSlack(client, period, directReport) {
   const msgData = await msgRes.json();
   if (!msgData.ok) throw new Error(`Message failed: ${msgData.error}`);
 
+  return { messageTs: msgData.ts };
+}
+
+// ── Send VA Dashboard summary to #va-reporting ────────────────────────────────
+async function sendVAReportToSlack(vaName, period, data, rating, outputRate, hiddenHours) {
+  const podInfo = getVAPod(vaName);
+  // Resolve channel ID
+  const listRes = await fetch(`/api/slack?endpoint=conversations.list&types=public_channel,private_channel&limit=200`);
+  const listData = await listRes.json();
+  const channelName = VA_REPORTING_CHANNEL.replace("#", "");
+  const channel = (listData.channels || []).find(c => c.name === channelName);
+  if (!channel) throw new Error(`Channel ${VA_REPORTING_CHANNEL} not found. Is the bot invited?`);
+  const channelId = channel.id;
+
+  const clientList = Object.entries(data.clientHours)
+    .sort((a, b) => b[1] - a[1])
+    .map(([client, hrs]) => `• *${client}:* ${hrs}h`)
+    .join("\n");
+
+  const catList = Object.entries(data.cats)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cat, hrs]) => `• ${cat}: *${hrs}h*`)
+    .join("\n");
+
+  const winsList = data.wins?.length
+    ? data.wins.map(w => `• _"${w.note}"_ — ${w.client}`).join("\n")
+    : "_No wins recorded this period._";
+
+  const blocks = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `👤 VA Report — ${vaName} | ${period.label}`, emoji: true }
+    },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*Pod:* ${podInfo.pod} · *Role:* ${podInfo.role}` }
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Total Hours*\n${data.totalHours}h` },
+        { type: "mrkdwn", text: `*Tasks Completed*\n${data.taskCount}` },
+        { type: "mrkdwn", text: `*Clients Served*\n${Object.keys(data.clientHours).length}` },
+        { type: "mrkdwn", text: `*Productivity Rating*\n${rating}` },
+        { type: "mrkdwn", text: `*Output Rate*\n${outputRate} tasks/hr` },
+        { type: "mrkdwn", text: `*Hidden Effort*\n+${hiddenHours}h estimated` },
+      ]
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*🏢 Hours by Client*\n${clientList}` },
+        { type: "mrkdwn", text: `*🗂️ Hours by Category*\n${catList}` },
+      ]
+    },
+    ...(data.wins?.length ? [
+      { type: "divider" },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `*⭐ Wins & Highlights*\n${winsList}` }
+      }
+    ] : []),
+    { type: "divider" },
+    {
+      type: "context",
+      elements: [
+        { type: "mrkdwn", text: `_Automated VA Report — Ava Virtual Agents Inc. · ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}_` }
+      ]
+    }
+  ];
+
+  const msgRes = await fetch(`/api/slack?endpoint=chat.postMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: channelId, text: `VA Report — ${vaName} | ${period.label}`, blocks })
+  });
+  const msgData = await msgRes.json();
+  if (!msgData.ok) throw new Error(`Message failed: ${msgData.error}`);
   return { messageTs: msgData.ts };
 }
 
