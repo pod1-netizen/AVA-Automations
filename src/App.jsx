@@ -498,6 +498,20 @@ RULES:
 - Do not add categories that don't exist in the input data`;
 }
 
+// ── Monthly hour caps per client ─────────────────────────────────────────────
+const CLIENT_CAPS = {
+  "Bryan Cruz":                   130,
+  "Ray Guardado & Fiona Santos":  130,
+  "Nick":                          60,
+  "Joji":                          60,
+  "Jacky":                         60,
+  "NSP":                          300,
+  "Leo":                          300,
+  "Kevin Cruz":                   300,
+  "Tien Le":                      300,
+};
+const DEFAULT_CAP = 100;
+
 // ── Build report data directly from CSV (no Claude needed) ──────────────────
 function buildDirectReport(client, period, data, slackMessages = []) {
   if (!data) return null;
@@ -637,7 +651,10 @@ function buildDirectReport(client, period, data, slackMessages = []) {
       market_positioning: `Work spanned ${Object.keys(data.cats).length} categories including ${Object.keys(data.cats).slice(0,3).join(", ")}, demonstrating broad operational support.`
     },
     recognitions,
-    monthly_balance: { cap: 300, used: totalH, remaining: Math.max(0, 300 - totalH) },
+    monthly_balance: (() => {
+      const cap = CLIENT_CAPS[client.display] || DEFAULT_CAP;
+      return { cap, used: totalH, remaining: Math.max(0, cap - totalH) };
+    })(),
     _wins: winsList
   };
 }
