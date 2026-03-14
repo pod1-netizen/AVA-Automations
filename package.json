@@ -12,6 +12,8 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^143.0.4",
+    "puppeteer-core": "^24.39.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

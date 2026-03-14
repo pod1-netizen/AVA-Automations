@@ -1595,33 +1595,40 @@ async function sendKPIToSlack(client, period, directReport) {
   const msgData = await msgRes.json();
   if (!msgData.ok) throw new Error(`Message failed: ${msgData.error}`);
 
-  // Step 3: Upload file using new Slack API (files.getUploadURLExternal)
+  // Step 3: Convert HTML → PDF via server, then upload to Slack
   const html = generatePDFHTML(directReport, client, period);
-  const filename = `KPI_${client.display.replace(/[^a-zA-Z0-9]/g,"_")}_${period.label.replace(/[^a-zA-Z0-9]/g,"_")}.html`;
-  const fileBlob = new Blob([html], { type: "text/html" });
-  const fileSize = new TextEncoder().encode(html).length;
+  const filename = `KPI_${client.display.replace(/[^a-zA-Z0-9]/g,"_")}_${period.label.replace(/[^a-zA-Z0-9]/g,"_")}.pdf`;
 
-  // 3a. Get upload URL
-  const urlRes = await fetch(`/api/slack?endpoint=files.getUploadURLExternal&filename=${encodeURIComponent(filename)}&length=${fileSize}`);
-  const urlData = await urlRes.json();
-  if (!urlData.ok) throw new Error(`Get upload URL failed: ${urlData.error}`);
-
-  // 3b. Upload file content to the provided URL via proxy
-  const uploadRes = await fetch(`/api/slack-upload?url=${encodeURIComponent(urlData.upload_url)}`, {
+  // 3a. Convert HTML to PDF via /api/slack-pdf
+  const pdfRes = await fetch(`/api/slack-pdf`, {
     method: "POST",
     headers: { "Content-Type": "text/html" },
     body: html
   });
+  if (!pdfRes.ok) throw new Error("PDF generation failed");
+  const pdfBytes = await pdfRes.arrayBuffer();
+
+  // 3b. Get Slack upload URL
+  const urlRes = await fetch(`/api/slack?endpoint=files.getUploadURLExternal&filename=${encodeURIComponent(filename)}&length=${pdfBytes.byteLength}`);
+  const urlData = await urlRes.json();
+  if (!urlData.ok) throw new Error(`Get upload URL failed: ${urlData.error}`);
+
+  // 3c. Upload PDF to Slack's upload URL
+  const uploadRes = await fetch(`/api/slack-upload?url=${encodeURIComponent(urlData.upload_url)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/pdf" },
+    body: pdfBytes
+  });
   if (!uploadRes.ok) throw new Error(`File content upload failed`);
 
-  // 3c. Complete the upload and share to channel
+  // 3d. Complete the upload and share to channel
   const completeRes = await fetch(`/api/slack?endpoint=files.completeUploadExternal`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       files: [{ id: urlData.file_id }],
       channel_id: channelId,
-      initial_comment: "📎 Full KPI Report attached — open in browser and print as PDF."
+      initial_comment: "📎 Full KPI Report attached."
     })
   });
   const completeData = await completeRes.json();
