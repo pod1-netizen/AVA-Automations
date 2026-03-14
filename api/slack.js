@@ -9,11 +9,40 @@ export default async function handler(req, res) {
   const { endpoint, ...params } = req.query;
   if (!endpoint) return res.status(400).json({ ok: false, error: "No endpoint specified" });
 
-  const qs = new URLSearchParams(params).toString();
-  const url = `https://slack.com/api/${endpoint}${qs ? "?" + qs : ""}`;
-
   try {
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    let response;
+    if (req.method === "POST") {
+      const contentType = req.headers["content-type"] || "";
+      if (contentType.includes("application/json")) {
+        response = await fetch(`https://slack.com/api/${endpoint}`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(req.body)
+        });
+      } else {
+        const qs = new URLSearchParams(params).toString();
+        const chunks = [];
+        req.on("data", chunk => chunks.push(chunk));
+        await new Promise(r => req.on("end", r));
+        const rawBody = Buffer.concat(chunks);
+        response = await fetch(`https://slack.com/api/${endpoint}${qs ? "?" + qs : ""}`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": contentType
+          },
+          body: rawBody
+        });
+      }
+    } else {
+      const qs = new URLSearchParams(params).toString();
+      response = await fetch(`https://slack.com/api/${endpoint}${qs ? "?" + qs : ""}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+    }
     const data = await response.json();
     res.status(200).json(data);
   } catch (e) {
