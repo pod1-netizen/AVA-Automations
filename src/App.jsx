@@ -2318,6 +2318,300 @@ function MainPanel({ client, period, sheetData }) {
   );
 }
 
+
+// ── Send Pod Report to #va-reporting ─────────────────────────────────────────
+async function sendPodReportToSlack(podName, podInfo, period, vaReports, totals) {
+  const listRes = await fetch(`/api/slack?endpoint=conversations.list&types=public_channel,private_channel&limit=200`);
+  const listData = await listRes.json();
+  const channel = (listData.channels || []).find(c => c.name === "va-reporting");
+  if (!channel) throw new Error(`Channel #va-reporting not found. Is the bot invited?`);
+  const channelId = channel.id;
+
+  const vaRows = vaReports.map(v =>
+    `• *${v.name}* ${v.role === "Leader" ? "👑" : ""} — ${v.totalHours}h · ${v.taskCount} tasks · ${v.rating}`
+  ).join("\n");
+
+  const catRows = Object.entries(totals.cats)
+    .sort((a,b) => b[1]-a[1])
+    .map(([cat, hrs]) => `• ${cat}: *${hrs}h*`).join("\n");
+
+  const clientRows = Object.entries(totals.clients)
+    .sort((a,b) => b[1]-a[1])
+    .map(([c, hrs]) => `• ${c}: *${hrs}h*`).join("\n");
+
+  const winRows = vaReports.flatMap(v => (v.wins||[]).map(w => `• *${v.name}:* _"${w.note}"_`)).slice(0,5);
+
+  const blocks = [
+    { type: "header", text: { type: "plain_text", text: `🏆 ${podName} Report — ${period.label}`, emoji: true } },
+    { type: "section", text: { type: "mrkdwn", text: `*Leader:* ${podInfo.leader} · *Members:* ${podInfo.members.length} VAs` } },
+    { type: "divider" },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Total Hours*\n${totals.totalHours}h` },
+        { type: "mrkdwn", text: `*Total Tasks*\n${totals.taskCount}` },
+        { type: "mrkdwn", text: `*Clients Served*\n${Object.keys(totals.clients).length}` },
+        { type: "mrkdwn", text: `*Active VAs*\n${vaReports.length}` },
+      ]
+    },
+    { type: "divider" },
+    { type: "section", fields: [
+      { type: "mrkdwn", text: `*👥 VA Breakdown*\n${vaRows}` },
+      { type: "mrkdwn", text: `*🗂️ Hours by Category*\n${catRows}` },
+    ]},
+    { type: "divider" },
+    { type: "section", text: { type: "mrkdwn", text: `*🏢 Client Breakdown*\n${clientRows}` } },
+    ...(winRows.length ? [
+      { type: "divider" },
+      { type: "section", text: { type: "mrkdwn", text: `*⭐ Wins & Highlights*\n${winRows.join("\n")}` } }
+    ] : []),
+    { type: "divider" },
+    { type: "context", elements: [{ type: "mrkdwn", text: `_Automated Pod Report — Ava Virtual Agents Inc. · ${new Date().toLocaleDateString("en-US", { month:"long", day:"numeric", year:"numeric" })}_` }] }
+  ];
+
+  const msgRes = await fetch(`/api/slack?endpoint=chat.postMessage`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: channelId, text: `${podName} Report — ${period.label}`, blocks })
+  });
+  const msgData = await msgRes.json();
+  if (!msgData.ok) throw new Error(`Message failed: ${msgData.error}`);
+  return { messageTs: msgData.ts };
+}
+
+// ── Pod Report Component ──────────────────────────────────────────────────────
+function PodReport({ sheetData }) {
+  const months = getMonthPeriods();
+  const [selPod, setSelPod] = useState(null);
+  const [selPeriod, setSelPeriod] = useState(null);
+  const [openMonth, setOpenMonth] = useState(months[months.length - 1].month);
+  const [sendStatus, setSendStatus] = useState("idle");
+  const [sendError, setSendError] = useState("");
+
+  const podInfo = selPod ? POD_STRUCTURE[selPod] : null;
+
+  const allMembers = podInfo ? [podInfo.leader, ...podInfo.members] : [];
+
+  const vaReports = useMemo(() => {
+    if (!selPod || !selPeriod || !sheetData) return [];
+    return allMembers.map(name => {
+      const data = getVAData(name, selPeriod, sheetData);
+      if (!data) return null;
+      return {
+        name,
+        role: name === podInfo.leader ? "Leader" : "Member",
+        totalHours: data.totalHours,
+        taskCount: data.taskCount,
+        cats: data.cats,
+        clientHours: data.clientHours,
+        wins: data.wins,
+        rating: getProductivityRating(data),
+        outputRate: Math.round((data.taskCount / data.totalHours) * 10) / 10,
+        hiddenHours: Math.round(Object.entries(data.cats).reduce((s,[cat,h]) => s + h*((CAT_COMPLEXITY[cat]||1.5)-1), 0)*10)/10,
+      };
+    }).filter(Boolean);
+  }, [selPod, selPeriod, sheetData]);
+
+  const totals = useMemo(() => {
+    if (!vaReports.length) return null;
+    const cats = {}, clients = {};
+    let totalHours = 0, taskCount = 0;
+    vaReports.forEach(v => {
+      totalHours = Math.round((totalHours + v.totalHours) * 100) / 100;
+      taskCount += v.taskCount;
+      Object.entries(v.cats).forEach(([c,h]) => { cats[c] = Math.round(((cats[c]||0)+h)*100)/100; });
+      Object.entries(v.clientHours).forEach(([c,h]) => { clients[c] = Math.round(((clients[c]||0)+h)*100)/100; });
+    });
+    return { totalHours, taskCount, cats, clients };
+  }, [vaReports]);
+
+  const handleSend = async () => {
+    if (!vaReports.length || sendStatus === "sending") return;
+    setSendStatus("sending"); setSendError("");
+    try {
+      await sendPodReportToSlack(selPod, podInfo, selPeriod, vaReports, totals);
+      setSendStatus("done");
+      setTimeout(() => setSendStatus("idle"), 5000);
+    } catch(err) {
+      setSendError(err.message); setSendStatus("error");
+      setTimeout(() => setSendStatus("idle"), 6000);
+    }
+  };
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", minHeight: "100vh" }}>
+      {/* Sidebar */}
+      <div style={{ background: "#060e1b", borderRight: "1px solid rgba(255,255,255,0.06)", overflowY: "auto", position: "sticky", top: 0, height: "100vh", padding: "14px 12px" }}>
+        <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+          <span style={{ background: GOLD, color: NAVY, width: 15, height: 15, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>1</span>
+          Select Pod
+        </div>
+        {Object.entries(POD_STRUCTURE).map(([pod, info]) => (
+          <button key={pod} onClick={() => setSelPod(pod)}
+            style={{ width: "100%", textAlign: "left", padding: "10px 10px", borderRadius: 8, marginBottom: 6, background: selPod === pod ? "rgba(240,180,41,0.12)" : "rgba(255,255,255,0.03)", border: selPod === pod ? `1px solid ${GOLD}` : "1px solid rgba(255,255,255,0.06)", color: selPod === pod ? "#fff" : "#94a3b8", cursor: "pointer" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 3 }}>🏆 {pod}</div>
+            <div style={{ fontSize: 10, color: "#475569" }}>👑 {info.leader}</div>
+            <div style={{ fontSize: 10, color: "#475569" }}>{info.members.length} members</div>
+          </button>
+        ))}
+
+        <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "10px 0" }} />
+        <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 9, display: "flex", alignItems: "center", gap: 5 }}>
+          <span style={{ background: TEAL, color: "#fff", width: 15, height: 15, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700 }}>2</span>
+          Period
+        </div>
+        {months.map(m => (
+          <div key={m.month} style={{ marginBottom: 4 }}>
+            <button onClick={() => setOpenMonth(openMonth === m.month ? null : m.month)}
+              style={{ width: "100%", textAlign: "left", padding: "5px 9px", borderRadius: 6, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)", color: "#64748b", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+              <span>{m.month}</span><span style={{ fontSize: 9 }}>{openMonth === m.month ? "▲" : "▼"}</span>
+            </button>
+            {openMonth === m.month && m.slots.map(p => (
+              <button key={p.label} onClick={() => setSelPeriod(p)}
+                style={{ width: "100%", textAlign: "left", padding: "6px 12px", borderRadius: 6, marginBottom: 2, marginTop: 2, background: selPeriod?.label === p.label ? `rgba(240,180,41,0.1)` : "rgba(255,255,255,0.02)", border: selPeriod?.label === p.label ? `1px solid ${GOLD}` : "1px solid transparent", color: selPeriod?.label === p.label ? "#fff" : "#94a3b8", cursor: "pointer", fontSize: 11 }}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Main content */}
+      <div style={{ padding: "28px 36px", overflowY: "auto" }}>
+        {!selPod && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh", gap: 12, opacity: 0.4 }}>
+            <div style={{ fontSize: 48 }}>🏆</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#94a3b8" }}>Select a pod + period</div>
+          </div>
+        )}
+        {selPod && !selPeriod && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh", gap: 10, opacity: 0.5 }}>
+            <div style={{ fontSize: 36 }}>📅</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#94a3b8" }}>Now select a reporting period</div>
+          </div>
+        )}
+        {selPod && selPeriod && !vaReports.length && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh", gap: 10, opacity: 0.5 }}>
+            <div style={{ fontSize: 36 }}>📭</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#94a3b8" }}>No data found for {selPod} in this period</div>
+          </div>
+        )}
+        {selPod && selPeriod && vaReports.length > 0 && totals && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+            {/* Header */}
+            <div style={{ background: `linear-gradient(135deg,${NAVY2},#1a2744)`, borderRadius: 14, padding: "20px 26px", borderBottom: `3px solid ${GOLD}` }}>
+              <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 4 }}>Ava Virtual Agents Inc. · Pod Performance Report</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>🏆 {selPod}</div>
+                  <div style={{ fontSize: 11, color: "#475569", marginTop: 3 }}>Leader: <strong style={{color:"#f0b429"}}>{podInfo.leader}</strong> · {selPeriod.label}</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+                  {[["Total Hours", `${totals.totalHours}h`, TEAL], ["Total Tasks", totals.taskCount, GOLD], ["Active VAs", vaReports.length, "#8b5cf6"], ["Clients", Object.keys(totals.clients).length, GREEN]].map(([l,v,a]) => (
+                    <div key={l} style={{ background: "rgba(255,255,255,0.06)", borderRadius: 9, padding: "10px 14px", borderLeft: `3px solid ${a}` }}>
+                      <div style={{ fontSize: 8, color: "#475569", textTransform: "uppercase", marginBottom: 3 }}>{l}</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Send to Slack button */}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={handleSend} disabled={sendStatus === "sending"}
+                style={{ padding: "11px 20px", borderRadius: 10, border: "1px solid rgba(74,222,128,0.4)", background: sendStatus === "done" ? "rgba(74,222,128,0.15)" : "rgba(74,222,128,0.08)", color: sendStatus === "done" ? "#22c55e" : sendStatus === "error" ? "#ef4444" : "#4ade80", cursor: sendStatus === "sending" ? "default" : "pointer", fontSize: 13, fontWeight: 700, opacity: sendStatus === "sending" ? 0.7 : 1 }}>
+                {sendStatus === "sending" ? "⏳ Sending..." : sendStatus === "done" ? "✅ Sent to #va-reporting!" : sendStatus === "error" ? "❌ Failed" : "📤 Send to #va-reporting"}
+              </button>
+              {sendStatus === "error" && <div style={{ fontSize: 11, color: "#ef4444", alignSelf: "center" }}>⚠️ {sendError}</div>}
+            </div>
+
+            {/* VA breakdown cards */}
+            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", fontWeight: 700, marginBottom: 14 }}>👥 VA Performance Breakdown</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {vaReports.sort((a,b) => b.totalHours - a.totalHours).map(v => (
+                  <div key={v.name} style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "12px 16px", border: `1px solid ${v.role === "Leader" ? "rgba(240,180,41,0.2)" : "rgba(255,255,255,0.06)"}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 34, height: 34, borderRadius: "50%", background: v.role === "Leader" ? `linear-gradient(135deg,${GOLD},${GOLD2})` : "linear-gradient(135deg,#8b5cf6,#6d28d9)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900, color: v.role === "Leader" ? NAVY : "#fff" }}>{v.name.charAt(0)}</div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{v.name} {v.role === "Leader" ? "👑" : ""}</div>
+                          <div style={{ fontSize: 10, color: "#475569" }}>{v.role} · {v.rating}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        {[["Hours", `${v.totalHours}h`, TEAL], ["Tasks", v.taskCount, GOLD], ["Rate", `${v.outputRate}/hr`, "#8b5cf6"]].map(([l,val,c]) => (
+                          <div key={l} style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: c, fontFamily: "monospace" }}>{val}</div>
+                            <div style={{ fontSize: 8, color: "#475569", textTransform: "uppercase" }}>{l}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Mini category bars */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {Object.entries(v.cats).sort((a,b)=>b[1]-a[1]).map(([cat, hrs]) => (
+                        <div key={cat} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ fontSize: 9, color: "#475569", width: 120, flexShrink: 0 }}>{cat}</div>
+                          <div style={{ flex: 1, height: 3, background: "rgba(255,255,255,0.05)", borderRadius: 2 }}>
+                            <div style={{ height: "100%", width: `${Math.min(100,(hrs/v.totalHours)*100)}%`, background: catColor(cat), borderRadius: 2 }} />
+                          </div>
+                          <div style={{ fontSize: 9, color: "#94a3b8", width: 28, textAlign: "right" }}>{hrs}h</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Wins */}
+                    {v.wins?.length > 0 && (
+                      <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(240,180,41,0.06)", borderRadius: 7, border: "1px solid rgba(240,180,41,0.12)" }}>
+                        <div style={{ fontSize: 9, color: GOLD, fontWeight: 700, marginBottom: 3 }}>⭐ Wins</div>
+                        {v.wins.slice(0,2).map((w,i) => <div key={i} style={{ fontSize: 10, color: "#fde68a", fontStyle: "italic" }}>"{w.note}"</div>)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Pod totals — hours by category + client */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "16px 18px" }}>
+                <div style={{ fontSize: 10, color: TEAL, textTransform: "uppercase", fontWeight: 700, marginBottom: 12 }}>🗂️ Pod Hours by Category</div>
+                {Object.entries(totals.cats).sort((a,b)=>b[1]-a[1]).map(([cat, hrs]) => (
+                  <div key={cat} style={{ marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+                      <span style={{ color: "#94a3b8" }}>{cat}</span>
+                      <span style={{ color: "#fff", fontWeight: 700 }}>{hrs}h</span>
+                    </div>
+                    <div style={{ height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2 }}>
+                      <div style={{ height: "100%", width: `${Math.min(100,(hrs/totals.totalHours)*100)}%`, background: catColor(cat), borderRadius: 2 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "16px 18px" }}>
+                <div style={{ fontSize: 10, color: "#8b5cf6", textTransform: "uppercase", fontWeight: 700, marginBottom: 12 }}>🏢 Client Breakdown</div>
+                {Object.entries(totals.clients).sort((a,b)=>b[1]-a[1]).map(([client, hrs]) => (
+                  <div key={client} style={{ marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+                      <span style={{ color: "#94a3b8" }}>{client}</span>
+                      <span style={{ color: "#fff", fontWeight: 700 }}>{hrs}h</span>
+                    </div>
+                    <div style={{ height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2 }}>
+                      <div style={{ height: "100%", width: `${Math.min(100,(hrs/totals.totalHours)*100)}%`, background: "#8b5cf6", borderRadius: 2 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [sel, setSel] = useState(null);
   const [selPeriod, setSelPeriod] = useState(null);
@@ -2364,7 +2658,7 @@ export default function App() {
             <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
           </label>
         </div>
-        {[["client", "📋 Client KPIs"], ["va", "👤 VA Dashboard"]].map(([tab, label]) => (
+        {[["client", "📋 Client KPIs"], ["va", "👤 VA Dashboard"], ["pod", "🏆 Pod Report"]].map(([tab, label]) => (
           <button key={tab} onClick={() => setAppTab(tab)}
             style={{ padding: "0 18px", height: "100%", border: "none", borderBottom: appTab === tab ? `2px solid ${TEAL}` : "2px solid transparent", background: "transparent", color: appTab === tab ? "#fff" : "#475569", cursor: "pointer", fontSize: 12, fontWeight: appTab === tab ? 700 : 400, transition: "all 0.15s" }}>
             {label}
@@ -2396,6 +2690,11 @@ export default function App() {
         {sheetData && appTab === "va" && (
           <div style={{ height: "calc(100vh - 46px)", overflowY: "auto" }}>
             <VADashboard sheetData={sheetData} />
+          </div>
+        )}
+        {sheetData && appTab === "pod" && (
+          <div style={{ height: "calc(100vh - 46px)", overflowY: "auto" }}>
+            <PodReport sheetData={sheetData} />
           </div>
         )}
       </div>
