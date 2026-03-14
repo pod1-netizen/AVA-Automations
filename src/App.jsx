@@ -30,9 +30,9 @@ const FALLBACK_SHEET_DATA = {
   },
   "Leo": {
     tasks: [
-      { name: "Morning Recurring Task FUB + Google Calendar", date: "2026-02-01", hours: 0.5, va: "Clyde", cat: "Administrative" },
-      { name: "Notion KPI dashboard setup", date: "2026-02-03", hours: 1.5, va: "Clyde", cat: "Administrative" },
-      { name: "Requested disclosures for 461 Southgate Ave", date: "2026-02-04", hours: 1.0, va: "Clyde", cat: "Administrative" },
+      { name: "Morning Recurring Task FUB + Google Calendar", date: "2026-02-01", hours: 0.5, va: "Clydel", cat: "Administrative" },
+      { name: "Notion KPI dashboard setup", date: "2026-02-03", hours: 1.5, va: "Clydel", cat: "Administrative" },
+      { name: "Requested disclosures for 461 Southgate Ave", date: "2026-02-04", hours: 1.0, va: "Clydel", cat: "Administrative" },
       { name: "AVA's Ad on Social Media Channels", date: "2026-02-06", hours: 0.67, va: "DJ", cat: "Content & Marketing" },
       { name: "Ava Ad - 4 samples", date: "2026-02-07", hours: 1.0, va: "Cly", cat: "Design & Editing" },
       { name: "Ava PubMat", date: "2026-02-10", hours: 0.5, va: "Cly", cat: "Design & Editing" },
@@ -41,7 +41,7 @@ const FALLBACK_SHEET_DATA = {
       { name: "Called SAMCAR for assistant pricing", date: "2026-02-21", hours: 1.0, va: "Allen", cat: "Administrative" },
       { name: "FUB tasks & lead reminder", date: "2026-02-24", hours: 0.42, va: "Ellaine", cat: "Administrative" },
       { name: "FUB tasks & lead follow-up batch", date: "2026-02-25", hours: 1.0, va: "Tashia", cat: "Administrative" },
-      { name: "Open house prep - 755 Mountain View Dr", date: "2026-03-01", hours: 0.5, va: "Clyde", cat: "Administrative" },
+      { name: "Open house prep - 755 Mountain View Dr", date: "2026-03-01", hours: 0.5, va: "Clydel", cat: "Administrative" },
       { name: "Posted Just Sold graphic - 461 Southgate", date: "2026-03-03", hours: 0.75, va: "DJ", cat: "Content & Marketing" },
       { name: "CRM lead tagging cleanup", date: "2026-03-05", hours: 1.0, va: "Tashia", cat: "Administrative" },
     ],
@@ -52,14 +52,14 @@ const FALLBACK_SHEET_DATA = {
   },
   "Nick": {
     tasks: [
-      { name: "Notion KPI dashboard setup", date: "2026-02-02", hours: 1.5, va: "Clyde", cat: "Administrative" },
+      { name: "Notion KPI dashboard setup", date: "2026-02-02", hours: 1.5, va: "Clydel", cat: "Administrative" },
       { name: "Reels: 238 Warwick St, 25 Ramsell St", date: "2026-02-04", hours: 0.59, va: "Tashia", cat: "Content & Marketing" },
       { name: "Open House Flyer Templates", date: "2026-02-05", hours: 1.0, va: "Tashia", cat: "Design & Editing" },
       { name: "Open House Flyer - 183 Victoria St. SF", date: "2026-02-07", hours: 0.67, va: "Tashia", cat: "Design & Editing" },
       { name: "Open House Flyer - 15-17 Harriet St", date: "2026-02-10", hours: 0.5, va: "Tashia", cat: "Design & Editing" },
       { name: "Market Report (272 new listings, 124 sold, 13 coming soon)", date: "2026-02-16", hours: 2.0, va: "Echo", cat: "Document Prep" },
       { name: "Email to Kimmie - OH flyer for printing", date: "2026-02-18", hours: 0.17, va: "Tashia", cat: "Administrative" },
-      { name: "Email Newsletter for Feb 25", date: "2026-02-20", hours: 1.5, va: "Clyde", cat: "Administrative" },
+      { name: "Email Newsletter for Feb 25", date: "2026-02-20", hours: 1.5, va: "Clydel", cat: "Administrative" },
       { name: "QR code linktree & Curb hero inquiry", date: "2026-02-24", hours: 0.5, va: "Ellaine", cat: "Administrative" },
       { name: "Ran CMA for 29 Cove Ln", date: "2026-02-26", hours: 0.5, va: "Echo", cat: "Administrative" },
       { name: "Open House Flyer - 340 Lakeview", date: "2026-03-02", hours: 0.75, va: "Tashia", cat: "Design & Editing" },
@@ -1042,14 +1042,14 @@ function BarRow({ label, value, max, color }) {
 
 // ── VA Dashboard helpers ──────────────────────────────────────────────────────
 const VA_MASTER_LIST = [
-  "Aldwin", "Alex Castillo", "Allen", "Charm", "Clyde",
+  "Aldwin", "Alex Castillo", "Allen", "Charm", "Clydel",
   "DJ", "Echo", "Ellaine", "Hannah",
   "Joseph", "Portia", "Tashia"
 ];
 
 const VA_NAME_MAP = {
   "charm": "Charm", "Charn": "Charm",
-  "Cly": "Clyde",
+  "Cly": "Clydel",
   "Echi": "Echo",
   "Alex Castilllo": "Alex Castillo",
   "ellaine": "Ellaine",
@@ -1558,6 +1558,63 @@ async function fetchSlackMessages(channelName, periodStart, periodEnd) {
   }
 }
 
+// ── Send KPI summary + PDF to Slack ──────────────────────────────────────────
+async function sendKPIToSlack(client, period, directReport) {
+  // Step 1: Resolve channel ID from channel name
+  const listRes = await fetch(`/api/slack?endpoint=conversations.list&types=public_channel,private_channel&limit=200`);
+  const listData = await listRes.json();
+  const channels = listData.channels || [];
+  const channelName = client.slack.replace("#", "");
+  const channel = channels.find(c => c.name === channelName);
+  if (!channel) throw new Error(`Channel ${client.slack} not found. Is the bot invited?`);
+  const channelId = channel.id;
+
+  const T = directReport.totals;
+  const V = directReport.value;
+  const MB = directReport.monthly_balance;
+  const comm = directReport.communication;
+  const used_pct = Math.round((MB.used / MB.cap) * 100);
+
+  // Step 2: Post summary message
+  const message = [
+    `Good day! 👋`,
+    ``,
+    `Your KPI Report for the period of *${period.label}* is now ready! 📊`,
+    ``,
+    `Please see the attached report for the full breakdown. Feel free to reach out if you have any questions!`,
+    ``,
+    `— *Ava Virtual Agents Inc.*`
+  ].join("\n");
+
+  const msgRes = await fetch(`/api/slack?endpoint=chat.postMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: channelId, text: message, mrkdwn: true })
+  });
+  const msgData = await msgRes.json();
+  if (!msgData.ok) throw new Error(`Message failed: ${msgData.error}`);
+
+  // Step 3: Generate PDF blob and upload
+  const html = generatePDFHTML(directReport, client, period);
+  const blob = new Blob([html], { type: "text/html" });
+  const formData = new FormData();
+  formData.append("channel", channelId);
+  formData.append("filename", `KPI_${client.display.replace(/\s+/g,"_")}_${period.label.replace(/\s+/g,"_")}.html`);
+  formData.append("filetype", "html");
+  formData.append("initial_comment", "📎 Full KPI Report attached — open in browser and print as PDF.");
+  formData.append("file", blob);
+
+  const fileRes = await fetch(`/api/slack?endpoint=files.upload`, {
+    method: "POST",
+    body: formData
+  });
+  const fileData = await fileRes.json();
+  if (!fileData.ok) throw new Error(`File upload failed: ${fileData.error}`);
+
+  return { messageTs: msgData.ts, fileId: fileData.file?.id };
+}
+
+
 // ── Main Panel ─────────────────────────────────────────────────────────────────
 function MainPanel({ client, period, sheetData }) {
   const [status, setStatus] = useState("idle");
@@ -1568,6 +1625,8 @@ function MainPanel({ client, period, sheetData }) {
   const [slackMessages, setSlackMessages] = useState([]);
   const [slackPreview, setSlackPreview] = useState(false);
   const [mainTab, setMainTab] = useState("generate");
+  const [slackSendStatus, setSlackSendStatus] = useState("idle"); // idle | sending | done | error
+  const [slackSendError, setSlackSendError] = useState("");
   const data = useMemo(() => {
     if (!client?.dataKey || !period) return null;
     const raw = sheetData[client.dataKey];
@@ -1677,6 +1736,21 @@ function MainPanel({ client, period, sheetData }) {
     oppHigh: (data.totalHours * 2.5 * 150).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     avoid: (data.totalHours * 2.5 * 75).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   } : null;
+
+  const handleSendToSlack = async () => {
+    if (!directReport || slackSendStatus === "sending") return;
+    setSlackSendStatus("sending");
+    setSlackSendError("");
+    try {
+      await sendKPIToSlack(client, period, directReport);
+      setSlackSendStatus("done");
+      setTimeout(() => setSlackSendStatus("idle"), 5000);
+    } catch (err) {
+      setSlackSendError(err.message);
+      setSlackSendStatus("error");
+      setTimeout(() => setSlackSendStatus("idle"), 6000);
+    }
+  };
 
   const previewPDF = () => {
     if (!directReport) return;
@@ -1913,7 +1987,16 @@ function MainPanel({ client, period, sheetData }) {
               style={{ padding: "13px 18px", borderRadius: 10, border: `1px solid ${GOLD}60`, background: `${GOLD}10`, color: GOLD, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
               ⬇ HTML
             </button>
+            <button onClick={handleSendToSlack} disabled={slackSendStatus === "sending"}
+              style={{ padding: "13px 18px", borderRadius: 10, border: `1px solid #4ade8060`, background: slackSendStatus === "done" ? "rgba(74,222,128,0.15)" : "rgba(74,222,128,0.08)", color: slackSendStatus === "done" ? "#22c55e" : slackSendStatus === "error" ? "#ef4444" : "#4ade80", cursor: slackSendStatus === "sending" ? "default" : "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, opacity: slackSendStatus === "sending" ? 0.7 : 1 }}>
+              {slackSendStatus === "sending" ? "⏳ Sending..." : slackSendStatus === "done" ? "✅ Sent!" : slackSendStatus === "error" ? "❌ Failed" : "📤 Send to Slack"}
+            </button>
           </div>
+          {slackSendStatus === "error" && slackSendError && (
+            <div style={{ fontSize: 11, color: "#ef4444", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, padding: "8px 12px", marginTop: 4 }}>
+              ⚠️ {slackSendError}
+            </div>
+          )}
 
           {/* Report inline preview */}
           <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: `1px solid rgba(240,180,41,0.2)` }}>
