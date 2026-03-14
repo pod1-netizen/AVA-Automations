@@ -151,6 +151,7 @@ const CLIENT_META = [
   { display: "Joey Boy Colo",               slack: "#client-joey-boy-colo",                     group: "Other" },
   { display: "NSP",                         slack: "#nsp-general",                              group: "Other" },
   { display: "7Edu",                        slack: "#7edu-ava-general",                         group: "Other" },
+  { display: "KPI Test",                     slack: "#kpi-report-logs",                          group: "Other" },
 ];
 
 // ── Parse live Apps Script JSON into SHEET_DATA shape ────────────────────────
