@@ -2670,7 +2670,7 @@ export default function App() {
         ))}
       </div>
       {/* Content */}
-      <div style={{ flex: 1, display: appTab === "client" ? "grid" : "block", gridTemplateColumns: "265px 1fr", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: appTab === "client" ? "grid" : "block", gridTemplateColumns: "265px 1fr", overflow: appTab === "client" ? "hidden" : "visible" }}>
         {!sheetData && (
           <div style={{ gridColumn: "1/-1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "80vh", gap: 18 }}>
             <div style={{ fontSize: 52 }}>📊</div>
