@@ -1576,65 +1576,79 @@ async function sendKPIToSlack(client, period, directReport) {
   const comm = directReport.communication;
   const used_pct = Math.round((MB.used / MB.cap) * 100);
 
-  // Step 2: Post summary message
-  const message = [
-    `Good day! 👋`,
-    ``,
-    `Your KPI Report for the period of *${period.label}* is now ready! 📊`,
-    ``,
-    `Please see the attached report for the full breakdown. Feel free to reach out if you have any questions!`,
-    ``,
-    `— *Ava Virtual Agents Inc.*`
-  ].join("\n");
+  // Step 2: Post rich Block Kit message with full report data
+  const sT = directReport.totals;
+  const sV = directReport.value;
+  const sMB = directReport.monthly_balance;
+  const sComm = directReport.communication;
+  const sUsedPct = Math.round((sMB.used / sMB.cap) * 100);
+  const vaList = directReport.recognitions.map(r => `• *${r.name}*`).join("\n");
+  const catList = Object.entries(directReport.tasks_data.categories)
+    .map(([cat, hrs]) => `• ${cat}: *${hrs}h*`).join("\n");
+
+  const blocks = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `📊 KPI Report — ${period.label}`, emoji: true }
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `Good day! 👋\n\nYour KPI Report for the period of *${period.label}* is now ready. Here's a summary of what your Ava team accomplished this period:`
+      }
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: "*📈 Performance Summary*" },
+      fields: [
+        { type: "mrkdwn", text: `*Total Hours*\n${T.total_hours}h` },
+        { type: "mrkdwn", text: `*Tasks Completed*\n${T.completed}` },
+        { type: "mrkdwn", text: `*Completion Rate*\n${T.completion_rate}` },
+        { type: "mrkdwn", text: `*VAs Active*\n${directReport.recognitions.length}` },
+        { type: "mrkdwn", text: `*Avg Response Time*\n${comm.avg_response}` },
+        { type: "mrkdwn", text: `*Slack Engagement*\n${comm.slack_engagement}` },
+      ]
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: "*💰 Value Delivered*" },
+      fields: [
+        { type: "mrkdwn", text: `*Opportunity Value*\n$${V.opp_low} – $${V.opp_high}` },
+        { type: "mrkdwn", text: `*Cost Avoidance*\n$${V.cost_avoidance}` },
+        { type: "mrkdwn", text: `*Hours Saved*\n${directReport.time_saved.total_saved_hours}h` },
+        { type: "mrkdwn", text: `*Monthly Cap Usage*\n${MB.used}h / ${MB.cap}h (${used_pct}%)` },
+      ]
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*🗂️ Hours by Category*\n${catList}` },
+        { type: "mrkdwn", text: `*👥 VA Team This Period*\n${vaList}` },
+      ]
+    },
+    { type: "divider" },
+    {
+      type: "context",
+      elements: [
+        { type: "mrkdwn", text: `_Feel free to reach out if you have any questions. — *Ava Virtual Agents Inc.*_` }
+      ]
+    }
+  ];
 
   const msgRes = await fetch(`/api/slack?endpoint=chat.postMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel: channelId, text: message, mrkdwn: true })
+    body: JSON.stringify({ channel: channelId, text: `KPI Report — ${period.label}`, blocks })
   });
   const msgData = await msgRes.json();
   if (!msgData.ok) throw new Error(`Message failed: ${msgData.error}`);
 
-  // Step 3: Convert HTML → PDF via server, then upload to Slack
-  const html = generatePDFHTML(directReport, client, period);
-  const filename = `KPI_${client.display.replace(/[^a-zA-Z0-9]/g,"_")}_${period.label.replace(/[^a-zA-Z0-9]/g,"_")}.pdf`;
-
-  // 3a. Convert HTML to PDF via /api/slack-pdf
-  const pdfRes = await fetch(`/api/slack-pdf`, {
-    method: "POST",
-    headers: { "Content-Type": "text/html" },
-    body: html
-  });
-  if (!pdfRes.ok) throw new Error("PDF generation failed");
-  const pdfBytes = await pdfRes.arrayBuffer();
-
-  // 3b. Get Slack upload URL
-  const urlRes = await fetch(`/api/slack?endpoint=files.getUploadURLExternal&filename=${encodeURIComponent(filename)}&length=${pdfBytes.byteLength}`);
-  const urlData = await urlRes.json();
-  if (!urlData.ok) throw new Error(`Get upload URL failed: ${urlData.error}`);
-
-  // 3c. Upload PDF to Slack's upload URL
-  const uploadRes = await fetch(`/api/slack-upload?url=${encodeURIComponent(urlData.upload_url)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/pdf" },
-    body: pdfBytes
-  });
-  if (!uploadRes.ok) throw new Error(`File content upload failed`);
-
-  // 3d. Complete the upload and share to channel
-  const completeRes = await fetch(`/api/slack?endpoint=files.completeUploadExternal`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      files: [{ id: urlData.file_id }],
-      channel_id: channelId,
-      initial_comment: "📎 Full KPI Report attached."
-    })
-  });
-  const completeData = await completeRes.json();
-  if (!completeData.ok) throw new Error(`Complete upload failed: ${completeData.error}`);
-
-  return { messageTs: msgData.ts, fileId: urlData.file_id };
+  return { messageTs: msgData.ts };
 }
 
 
