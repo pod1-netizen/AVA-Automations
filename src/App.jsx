@@ -1595,24 +1595,39 @@ async function sendKPIToSlack(client, period, directReport) {
   const msgData = await msgRes.json();
   if (!msgData.ok) throw new Error(`Message failed: ${msgData.error}`);
 
-  // Step 3: Generate PDF blob and upload
+  // Step 3: Upload file using new Slack API (files.getUploadURLExternal)
   const html = generatePDFHTML(directReport, client, period);
-  const blob = new Blob([html], { type: "text/html" });
-  const formData = new FormData();
-  formData.append("channel", channelId);
-  formData.append("filename", `KPI_${client.display.replace(/\s+/g,"_")}_${period.label.replace(/\s+/g,"_")}.html`);
-  formData.append("filetype", "html");
-  formData.append("initial_comment", "📎 Full KPI Report attached — open in browser and print as PDF.");
-  formData.append("file", blob);
+  const filename = `KPI_${client.display.replace(/[^a-zA-Z0-9]/g,"_")}_${period.label.replace(/[^a-zA-Z0-9]/g,"_")}.html`;
+  const fileBlob = new Blob([html], { type: "text/html" });
+  const fileSize = new TextEncoder().encode(html).length;
 
-  const fileRes = await fetch(`/api/slack?endpoint=files.upload`, {
+  // 3a. Get upload URL
+  const urlRes = await fetch(`/api/slack?endpoint=files.getUploadURLExternal&filename=${encodeURIComponent(filename)}&length=${fileSize}`);
+  const urlData = await urlRes.json();
+  if (!urlData.ok) throw new Error(`Get upload URL failed: ${urlData.error}`);
+
+  // 3b. Upload file content to the provided URL via proxy
+  const uploadRes = await fetch(`/api/slack-upload?url=${encodeURIComponent(urlData.upload_url)}`, {
     method: "POST",
-    body: formData
+    headers: { "Content-Type": "text/html" },
+    body: html
   });
-  const fileData = await fileRes.json();
-  if (!fileData.ok) throw new Error(`File upload failed: ${fileData.error}`);
+  if (!uploadRes.ok) throw new Error(`File content upload failed`);
 
-  return { messageTs: msgData.ts, fileId: fileData.file?.id };
+  // 3c. Complete the upload and share to channel
+  const completeRes = await fetch(`/api/slack?endpoint=files.completeUploadExternal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      files: [{ id: urlData.file_id }],
+      channel_id: channelId,
+      initial_comment: "📎 Full KPI Report attached — open in browser and print as PDF."
+    })
+  });
+  const completeData = await completeRes.json();
+  if (!completeData.ok) throw new Error(`Complete upload failed: ${completeData.error}`);
+
+  return { messageTs: msgData.ts, fileId: urlData.file_id };
 }
 
 
