@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 const NAVY = "#07111f";
 const NAVY2 = "#0c1d35";
 const GOLD = "#f0b429";
+const GOLD2 = "#d97706";
 const TEAL = "#0d9488";
 const GREEN = "#22c55e";
 
