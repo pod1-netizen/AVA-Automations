@@ -2389,8 +2389,6 @@ function PodReport({ sheetData }) {
 
   const podInfo = selPod ? POD_STRUCTURE[selPod] : null;
 
-  const allMembers = podInfo ? [podInfo.leader, ...podInfo.members] : [];
-
   const vaReports = useMemo(() => {
     if (!selPod || !selPeriod || !sheetData) return [];
     const info = POD_STRUCTURE[selPod];
@@ -2496,9 +2494,12 @@ function PodReport({ sheetData }) {
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "70vh", gap: 10, opacity: 0.5 }}>
             <div style={{ fontSize: 36 }}>📭</div>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#94a3b8" }}>No data found for {selPod} in this period</div>
+            <div style={{ fontSize: 11, color: "#334155", textAlign: "center", maxWidth: 340 }}>
+              Make sure the CSV is imported and contains tasks logged by {podInfo ? [podInfo.leader, ...podInfo.members].join(", ") : ""} for {selPeriod?.label}.
+            </div>
           </div>
         )}
-        {selPod && selPeriod && vaReports.length > 0 && totals && (
+        {selPod && selPeriod && vaReports.length > 0 && totals && podInfo && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
             {/* Header */}
@@ -2507,7 +2508,7 @@ function PodReport({ sheetData }) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>🏆 {selPod}</div>
-                  <div style={{ fontSize: 11, color: "#475569", marginTop: 3 }}>Leader: <strong style={{color:"#f0b429"}}>{podInfo.leader}</strong> · {selPeriod.label}</div>
+                  <div style={{ fontSize: 11, color: "#475569", marginTop: 3 }}>Leader: <strong style={{color:"#f0b429"}}>{podInfo?.leader}</strong> · {selPeriod.label}</div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
                   {[["Total Hours", `${totals.totalHours}h`, TEAL], ["Total Tasks", totals.taskCount, GOLD], ["Active VAs", vaReports.length, "#8b5cf6"], ["Clients", Object.keys(totals.clients).length, GREEN]].map(([l,v,a]) => (
