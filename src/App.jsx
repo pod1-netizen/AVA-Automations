@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import ShiftDashboard from "./ShiftDashboard";
 
 const NAVY = "#07111f";
 const NAVY2 = "#0c1d35";
@@ -2665,7 +2664,7 @@ export default function App() {
             <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
           </label>
         </div>
-        {[["client", "📋 Client KPIs"], ["va", "👤 VA Dashboard"], ["pod", "🏆 Pod Report"], ["shift", "🖥️ Shift Dashboard"]].map(([tab, label]) => (
+        {[["client", "📋 Client KPIs"], ["va", "👤 VA Dashboard"], ["pod", "🏆 Pod Report"]].map(([tab, label]) => (
           <button key={tab} onClick={() => setAppTab(tab)}
             style={{ padding: "0 18px", height: "100%", border: "none", borderBottom: appTab === tab ? `2px solid ${TEAL}` : "2px solid transparent", background: "transparent", color: appTab === tab ? "#fff" : "#475569", cursor: "pointer", fontSize: 12, fontWeight: appTab === tab ? 700 : 400, transition: "all 0.15s" }}>
             {label}
@@ -2702,11 +2701,6 @@ export default function App() {
         {sheetData && appTab === "pod" && (
           <div style={{ height: "calc(100vh - 46px)", overflowY: "auto" }}>
             <PodReport sheetData={sheetData} />
-          </div>
-        )}
-        {appTab === "shift" && (
-          <div style={{ height: "calc(100vh - 46px)", overflowY: "auto" }}>
-            <ShiftDashboard />
           </div>
         )}
       </div>
