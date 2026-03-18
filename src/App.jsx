@@ -531,7 +531,8 @@ function buildDirectReport(client, period, data, slackMessages = []) {
     return { category: cat, ava_hours: ava, self_hours: self, hours_saved: Math.round((self - ava) * 100) / 100 };
   });
 
-  const recognitions = Object.entries(data.vas).map(([va, hrs], i) => ({
+  const CLIENT_NAMES = ["Bryan Cruz","Ed Barreto","Ray Guardado & Fiona Santos","Fiona","Ray","Guillean Arradaza","Tien Le","Kevin Cruz","Leo","Jacky","Nick","Joji","Chris Yanguas","Joey Boy Colo","NSP","7Edu","Alexander Chan","Leo Morales","Fiona Santos"];
+  const recognitions = Object.entries(data.vas).filter(([va]) => !CLIENT_NAMES.includes(va)).map(([va, hrs], i) => ({
     number: i + 1,
     name: va,
     note: `Contributed ${hrs}h across ${data.vaDetails?.[va]?.tasks?.length || 0} tasks this period.`
