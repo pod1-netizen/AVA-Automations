@@ -682,7 +682,7 @@ function generatePDFHTML(d, client, period) {
 
   // Status badge color
   const statusColor = s => {
-    const map = { "-": "#94a3b8", "High": "#22c55e", "On Track": "#22c55e", "Excellent": "#22c55e", "Minimal": "#22c55e", "Monitor": "#f59e0b", "Comprehensive Service": "#0d9488" };
+    const map = { "-": "#94a3b8", "High": "#22c55e", "On Track": "#22c55e", "Excellent": "#22c55e", "Minimal": "#22c55e", "Monitor": "#f59e0b", "Comprehensive Service": "#1d4ed8" };
     return map[s] || "#94a3b8";
   };
 
@@ -751,7 +751,7 @@ html, body {
 
 /* ── Header ───────────────────────── */
 .header {
-  background: #07111f;
+  background: #1e3a8a;
   position: relative;
   overflow: hidden;
   padding: 20px 36px 16px;
@@ -775,7 +775,7 @@ html, body {
 .logo-group { display: flex; align-items: center; gap: 12px; }
 .logo-mark {
   width: 36px; height: 36px; border-radius: 8px;
-  background: #0d9488;
+  background: #1d4ed8;
   display: flex; align-items: center; justify-content: center;
   color: white; font-weight: 900; font-size: 18px; flex-shrink: 0;
 }
@@ -784,7 +784,7 @@ html, body {
 .report-title { color: #f0b429; font-size: 24pt; font-weight: 900; letter-spacing: 2px; }
 
 /* ── Teal accent bar ──────────────── */
-.accent-bar { background: #0d9488; height: 3px; }
+.accent-bar { background: #1d4ed8; height: 3px; }
 
 /* ── Sub-header meta ──────────────── */
 .meta-bar {
@@ -803,8 +803,8 @@ html, body {
 
 /* ── Section heading ──────────────── */
 .section-title {
-  font-size: 10.5pt; font-weight: 800; color: #07111f;
-  border-bottom: 2.5px solid #0d9488;
+  font-size: 10.5pt; font-weight: 800; color: #1e3a8a;
+  border-bottom: 2.5px solid #1d4ed8;
   padding-bottom: 4px; margin-bottom: 12px; margin-top: 20px;
   text-transform: uppercase; letter-spacing: 0.06em;
 }
@@ -812,7 +812,7 @@ html, body {
 
 /* ── Metrics table ────────────────── */
 .metrics-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
-.metrics-table thead tr { background: #07111f; }
+.metrics-table thead tr { background: #1e3a8a; }
 .metrics-table thead th {
   color: white; font-weight: 700; font-size: 8.5pt;
   padding: 8px 12px; text-align: left;
@@ -837,7 +837,7 @@ html, body {
 /* ── Task breakdown ───────────────── */
 .cat-section { margin-bottom: 12px; }
 .cat-heading {
-  font-weight: 700; font-size: 9pt; color: #07111f;
+  font-weight: 700; font-size: 9pt; color: #1e3a8a;
   text-decoration: underline; margin-bottom: 4px;
 }
 .task-line { font-size: 8.5pt; color: #374151; padding: 1.5px 0 1.5px 10px; line-height: 1.45; }
@@ -846,14 +846,14 @@ html, body {
 .two-col { display: flex; gap: 0; margin-top: 14px; }
 .col-half { flex: 1; padding: 12px 16px; background: #f8fafc; border: 0.5px solid #e2e8f0; }
 .col-half + .col-half { border-left: none; }
-.col-heading { font-weight: 700; font-size: 9pt; color: #07111f; margin-bottom: 7px; }
+.col-heading { font-weight: 700; font-size: 9pt; color: #1e3a8a; margin-bottom: 7px; }
 .col-item { font-size: 8.5pt; color: #374151; padding: 2px 0; }
 .col-item::before { content: "• "; }
 
 /* ── Time saved table ─────────────── */
 .ts-note { font-size: 7.5pt; color: #94a3b8; margin: 7px 0 10px; line-height: 1.55; font-style: italic; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
-.data-table thead tr { background: #07111f; }
+.data-table thead tr { background: #1e3a8a; }
 .data-table thead th {
   color: white; padding: 8px 12px; font-weight: 700; font-size: 8.5pt;
   border-right: 1px solid rgba(255,255,255,0.1);
@@ -866,7 +866,7 @@ html, body {
 .data-table tbody td { padding: 7px 12px; border: 0.5px solid #e2e8f0; color: #374151; }
 .data-table tbody td:not(:first-child) { text-align: center; }
 .data-table tfoot td {
-  padding: 8px 12px; font-weight: 800; color: #07111f;
+  padding: 8px 12px; font-weight: 800; color: #1e3a8a;
   background: #e0f2fe; border: 0.5px solid #bae6fd;
   text-align: center;
 }
@@ -878,7 +878,7 @@ html, body {
 /* ── KPI Recap ────────────────────── */
 .recap-meta { font-size: 8pt; color: #64748b; margin-bottom: 14px; }
 .recap-section { margin-bottom: 12px; }
-.recap-label { font-weight: 800; font-size: 9.5pt; color: #07111f; margin-bottom: 3px; }
+.recap-label { font-weight: 800; font-size: 9.5pt; color: #1e3a8a; margin-bottom: 3px; }
 .recap-text { font-size: 8.5pt; color: #374151; line-height: 1.7; }
 
 /* ── Special Recognition ──────────── */
@@ -893,12 +893,12 @@ html, body {
 /* ── Footer ───────────────────────── */
 .footer {
   position: fixed; bottom: 0; left: 0; right: 0;
-  background: #07111f; border-top: 2px solid #0d9488;
+  background: #1e3a8a; border-top: 2px solid #1d4ed8;
   padding: 9px 36px; display: flex; justify-content: space-between; align-items: center;
 }
 .footer-left { color: #475569; font-size: 7pt; }
 .footer-right { color: #475569; font-size: 7pt; }
-.footer-logo { color: #0d9488; font-weight: 800; font-size: 8pt; }
+.footer-logo { color: #1d4ed8; font-weight: 800; font-size: 8pt; }
 </style>
 </head>
 <body>
