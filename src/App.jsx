@@ -328,15 +328,19 @@ const CLIENT_ALIASES = {
 
 // ── Build CLIENTS list from sheetData + CLIENT_META ───────────────────────────
 function buildClients(sheetData) {
-  // Build a normalized lookup: canonical display name → CSV key
+  // Build a normalized lookup: canonical display name → array of CSV keys
   const csvKeyMap = {};
   Object.keys(sheetData).forEach(csvKey => {
     const canonical = CLIENT_ALIASES[csvKey] !== undefined ? CLIENT_ALIASES[csvKey] : csvKey;
-    if (canonical) csvKeyMap[canonical] = csvKey;
+    if (canonical) {
+      if (!csvKeyMap[canonical]) csvKeyMap[canonical] = [];
+      csvKeyMap[canonical].push(csvKey);
+    }
   });
   return CLIENT_META.map(m => ({
     ...m,
-    dataKey: csvKeyMap[m.display] || null,
+    dataKey: csvKeyMap[m.display] ? csvKeyMap[m.display][0] : null,
+    dataKeys: csvKeyMap[m.display] || [],
   }));
 }
 
@@ -1793,9 +1797,17 @@ function MainPanel({ client, period, sheetData }) {
   const [slackSendStatus, setSlackSendStatus] = useState("idle"); // idle | sending | done | error
   const [slackSendError, setSlackSendError] = useState("");
   const data = useMemo(() => {
-    if (!client?.dataKey || !period) return null;
-    const raw = sheetData[client.dataKey];
-    return raw ? filterData(raw, period) : null;
+    if (!client || !period) return null;
+    const keys = client.dataKeys && client.dataKeys.length > 0 ? client.dataKeys : (client.dataKey ? [client.dataKey] : []);
+    if (keys.length === 0) return null;
+    const merged = { tasks: [], wins: [] };
+    keys.forEach(k => {
+      if (sheetData[k]) {
+        merged.tasks = merged.tasks.concat(sheetData[k].tasks || []);
+        merged.wins = merged.wins.concat(sheetData[k].wins || []);
+      }
+    });
+    return merged.tasks.length > 0 ? filterData(merged, period) : null;
   }, [client, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useMemo(() => { setStatus("idle"); setReportData(null); setSlackMessages([]); setSlackStatus("idle"); setSlackPreview(false); setMainTab("generate"); }, [client, period]);
