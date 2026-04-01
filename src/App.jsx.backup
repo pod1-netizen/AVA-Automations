@@ -148,8 +148,8 @@ const CLIENT_META = [
   { display: "Jacky",                       slack: "#leo-team-jacky-nick-joji",                 group: "Leo Team" },
   { display: "Nick",                        slack: "#leo-team-jacky-nick-joji",                 group: "Leo Team" },
   { display: "Joji",                        slack: "#leo-team-jacky-nick-joji",                 group: "Leo Team" },
-  { display: "Chris Yanguas",               slack: "#client-chris-yanguas",                     group: "Other" },
-  { display: "Joey Boy Colo",               slack: "#client-joey-boy-colo",                     group: "Other" },
+  
+  { display: "Joey Boy Colo & Chris Yanguas",       slack: "#client-joey-boy-colo",                     group: "Other" },
   { display: "NSP",                         slack: "#nsp-general",                              group: "Other" },
   { display: "7Edu",                        slack: "#7edu-ava-general",                         group: "Other" },
   { display: "KPI Test",                     slack: "#kpi-report-logs",                          group: "Other" },
@@ -318,9 +318,9 @@ const CLIENT_ALIASES = {
   "Nick Huynh":             "Nick",
   "Joji Kurotani":          "Joji",
   "Fiona & Ray":            "Ray Guardado & Fiona Santos",
-  "Joey":                   "Joey Boy Colo",
-  "Joey & Chris":           "Joey Boy Colo",
-  "Chris":                  "Chris Yanguas",
+  "Joey":                   "Joey Boy Colo & Chris Yanguas",
+  "Joey & Chris":           "Joey Boy Colo & Chris Yanguas",
+  "Chris":                  "Joey Boy Colo & Chris Yanguas",
   "Alexander Chan":         "7Edu",
   "AVA (other)":            null,
   "Kevin":                  "Kevin Cruz",
@@ -510,8 +510,8 @@ const CLIENT_CAPS = {
   "Nick":                          60,
   "Joji":                          60,
   "Jacky":                         60,
-  "Joey Boy Colo":                130,
-  "Chris Yanguas":                130,
+  "Joey Boy Colo & Chris Yanguas":       130,
+  
   "NSP":                          300,
   "Leo":                          300,
   "Kevin Cruz":                   300,
@@ -532,7 +532,7 @@ function buildDirectReport(client, period, data, slackMessages = []) {
     return { category: cat, ava_hours: ava, self_hours: self, hours_saved: Math.round((self - ava) * 100) / 100 };
   });
 
-  const CLIENT_NAMES = ["Weekly Meeting","Weekly meeting","weekly meeting","Bryan Cruz","Ed Barreto","Ray Guardado & Fiona Santos","Fiona","Ray","Guillean Arradaza","Tien Le","Kevin Cruz","Leo","Jacky","Nick","Joji","Chris Yanguas","Joey Boy Colo","NSP","Alexander Chan","Leo Morales","Fiona Santos"];
+  const CLIENT_NAMES = ["Bryan Cruz","Ed Barreto","Ray Guardado & Fiona Santos","Fiona","Ray","Guillean Arradaza","Tien Le","Kevin Cruz","Leo","Jacky","Nick","Joji","Joey Boy Colo & Chris Yanguas","NSP","Alexander Chan","Leo Morales","Fiona Santos"];
   const recognitions = Object.entries(data.vas).filter(([va]) => !CLIENT_NAMES.includes(va)).map(([va, hrs], i) => ({
     number: i + 1,
     name: va,
@@ -1067,7 +1067,7 @@ const VA_MASTER_LIST = [
 ];
 
 const VA_NAME_MAP = {
-  "charm": "Charm", "Charn": "Charm", "CHARM": "Charm",
+  "charm": "Charm", "Charn": "Charm", "CHARM": "Charm", "Weekly Meeting": null, "weekly meeting": null, "Weekly meeting": null,
   "Cly": "Clydel",
   "Clyde": "Clydel",
   "Echi": "Echo",
